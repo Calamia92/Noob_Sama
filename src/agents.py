@@ -68,10 +68,33 @@ def discretize(obs: Observation) -> str:
         distance = "none"
 
     hp_low = int(obs.hp * 2 <= obs.max_hp)
-    doors = int(obs.doors_open)
+    # Once the room is clear, the agent needs to know WHERE the exit is,
+    # otherwise every point of an empty room looks identical and it cannot
+    # learn to leave (no rooms were ever cleared without this).
+    if not obs.doors_open:
+        doors = "d0"
+    elif enemy is None and obs.nearest_door:
+        doors = "d" + obs.nearest_door["dir"][0]
+    else:
+        doors = "d1"
     pickup = int(_useful_pickup_nearby(obs))
     interact = int(_interactable_in_range(obs))
-    return f"{direction}:{distance}:h{hp_low}:d{doors}:p{pickup}:i{interact}"
+    return f"{direction}:{distance}:h{hp_low}:{doors}:p{pickup}:i{interact}"
+
+
+def project_action(action: str, actions: list[str], rng: random.Random) -> str:
+    """Map a rich policy action (diagonals, free move+shoot combos) onto the
+    training action set by picking one of its in-set components."""
+    if action in actions:
+        return action
+    if "_shoot_" in action:
+        move, _, shoot_dir = action.partition("_shoot_")
+        candidates = [c for c in (move, "shoot_" + shoot_dir) if c in actions]
+    else:
+        candidates = [c for c in action.split("_") if c in actions]
+    if candidates:
+        return rng.choice(candidates)
+    return "noop"
 
 
 class QLearningAgent:

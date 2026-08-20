@@ -14,8 +14,9 @@ sys.path.insert(0, str(ROOT))
 
 from playwright.sync_api import Error as PlaywrightError
 
-from src.agents import TRAIN_ACTIONS, QLearningAgent, discretize
+from src.agents import TRAIN_ACTIONS, QLearningAgent, discretize, project_action
 from src.eos_env import EclipseEnv, Observation
+from src.policies import heuristic_action
 
 
 DEFAULT_OUTPUT = ROOT / "reports" / "training_scores.csv"
@@ -60,6 +61,21 @@ def parse_args() -> argparse.Namespace:
         default=2.0,
         help="Training-only penalty per HP lost. The comparison score never changes.",
     )
+    parser.add_argument(
+        "--door-shaping",
+        type=float,
+        default=0.0,
+        help="Training-only potential on the distance to the nearest door of "
+        "a cleared room. The comparison score never changes.",
+    )
+    parser.add_argument(
+        "--guide-ratio",
+        type=float,
+        default=0.0,
+        help="Share of exploration steps played by the heuristic instead of "
+        "pure random (off-policy guidance). Evaluation always uses the "
+        "Q-table alone.",
+    )
     parser.add_argument("--eval-every", type=int, default=25)
     parser.add_argument("--eval-episodes", type=int, default=3)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
@@ -69,13 +85,28 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def train_reward(before: Observation, after: Observation, hp_penalty: float) -> float:
+def door_potential(obs: Observation, weight: float) -> float:
+    # Dense training signal toward the exit of a cleared room; the sparse
+    # +10 room reward alone is almost never seen in 100-step episodes.
+    if obs.state == "play" and obs.doors_open and obs.nearest_enemy is None and obs.nearest_door:
+        return -weight * obs.nearest_door["distance"]
+    return 0.0
+
+
+def train_reward(
+    before: Observation,
+    after: Observation,
+    hp_penalty: float,
+    door_shaping: float = 0.0,
+) -> float:
     return (
         (after.floors - before.floors) * 100
         + (after.rooms - before.rooms) * 10
         + (after.kills - before.kills)
         + max(0.0, after.time - before.time) * 0.1
         - max(0.0, before.hp - after.hp) * hp_penalty
+        + door_potential(after, door_shaping)
+        - door_potential(before, door_shaping)
     )
 
 
@@ -86,6 +117,8 @@ def run_episode(
     max_steps: int,
     greedy: bool,
     hp_penalty: float,
+    guide_ratio: float = 0.0,
+    door_shaping: float = 0.0,
 ) -> dict[str, object]:
     started = time.monotonic()
     obs = env.reset()
@@ -95,10 +128,16 @@ def run_episode(
     done = False
 
     while not done and steps < max_steps:
-        action = agent.act(state, greedy=greedy)
+        if not greedy and agent.rng.random() < agent.epsilon:
+            if guide_ratio > 0 and agent.rng.random() < guide_ratio:
+                action = project_action(heuristic_action(obs), agent.actions, agent.rng)
+            else:
+                action = agent.rng.choice(agent.actions)
+        else:
+            action = agent.act(state, greedy=True)
         previous = obs
         obs, _, done, _ = env.step(action)
-        reward = train_reward(previous, obs, hp_penalty)
+        reward = train_reward(previous, obs, hp_penalty, door_shaping)
         next_state = discretize(obs)
         if not greedy:
             agent.update(state, action, reward, next_state, done)
@@ -194,6 +233,8 @@ def main() -> None:
                 max_steps=args.max_steps,
                 greedy=False,
                 hp_penalty=args.hp_penalty,
+                guide_ratio=args.guide_ratio,
+                door_shaping=args.door_shaping,
             )
             write_row("train", episode, row)
             print(
