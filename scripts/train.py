@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT))
 
 from playwright.sync_api import Error as PlaywrightError
 
-from src.agents import TRAIN_ACTIONS, QLearningAgent, discretize, project_action
+from src.agents import CONCRETE_ACTIONS, TRAIN_ACTIONS, QLearningAgent, discretize, project_action
 from src.eos_env import EclipseEnv, Observation
 from src.policies import heuristic_action
 
@@ -45,7 +45,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-steps", type=int, default=100)
     parser.add_argument("--step-seconds", type=float, default=0.15)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--alpha", type=float, default=0.2)
+    parser.add_argument("--alpha", type=float, default=0.25)
+    parser.add_argument("--alpha-min", type=float, default=0.05)
+    parser.add_argument(
+        "--alpha-decay",
+        type=float,
+        default=None,
+        help="Per-episode decay. Default: reach alpha-min at the end of the run.",
+    )
     parser.add_argument("--gamma", type=float, default=0.95)
     parser.add_argument("--epsilon-start", type=float, default=1.0)
     parser.add_argument("--epsilon-min", type=float, default=0.05)
@@ -128,20 +135,42 @@ def run_episode(
     steps = 0
     done = False
 
+    trail: list[tuple[float, float]] = []
+
     while not done and steps < max_steps:
         if not greedy and agent.rng.random() < agent.epsilon:
             if guide_ratio > 0 and agent.rng.random() < guide_ratio:
-                action = project_action(heuristic_action(obs), agent.actions, agent.rng)
+                # Half the guided moves credit the delegation meta-action,
+                # the other half credit the concrete move itself.
+                if agent.rng.random() < 0.5:
+                    label = "heuristic"
+                else:
+                    label = project_action(heuristic_action(obs), CONCRETE_ACTIONS, agent.rng)
             else:
-                action = agent.rng.choice(agent.actions)
+                label = agent.rng.choice(agent.actions)
         else:
-            action = agent.act(state, greedy=True)
+            label = agent.act(state, greedy=True)
+
+        if greedy:
+            trail.append((obs.x, obs.y))
+            if len(trail) > 8:
+                trail.pop(0)
+                spread_x = max(p[0] for p in trail) - min(p[0] for p in trail)
+                spread_y = max(p[1] for p in trail) - min(p[1] for p in trail)
+                if spread_x < 12 and spread_y < 12 and obs.enemy_count == 0:
+                    label = agent.rng.choice(CONCRETE_ACTIONS)
+                    trail.clear()
+
+        action = label
+        if action == "heuristic":
+            action = project_action(heuristic_action(obs), CONCRETE_ACTIONS, agent.rng)
+
         previous = obs
         obs, _, done, _ = env.step(action)
         reward = train_reward(previous, obs, hp_penalty, door_shaping)
         next_state = discretize(obs)
         if not greedy:
-            agent.update(state, action, reward, next_state, done)
+            agent.update(state, label, reward, next_state, done)
         state = next_state
         total_reward += reward
         steps += 1
@@ -195,9 +224,14 @@ def main() -> None:
         if decay is None:
             horizon = max(1.0, 0.7 * args.episodes)
             decay = (args.epsilon_min / args.epsilon_start) ** (1.0 / horizon)
+        alpha_decay = args.alpha_decay
+        if alpha_decay is None:
+            alpha_decay = (args.alpha_min / args.alpha) ** (1.0 / max(1, args.episodes))
         agent = QLearningAgent(
             TRAIN_ACTIONS,
             alpha=args.alpha,
+            alpha_min=args.alpha_min,
+            alpha_decay=alpha_decay,
             gamma=args.gamma,
             epsilon=args.epsilon_start,
             epsilon_min=args.epsilon_min,

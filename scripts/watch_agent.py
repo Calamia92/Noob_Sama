@@ -10,8 +10,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.agents import QLearningAgent, discretize
+from src.agents import CONCRETE_ACTIONS, QLearningAgent, discretize, project_action
 from src.eos_env import EclipseEnv
+from src.policies import heuristic_action
 
 
 DEFAULT_AGENT = ROOT / "models" / "best_agent.json"
@@ -62,8 +63,10 @@ def main() -> None:
                     spread_x = max(p[0] for p in trail) - min(p[0] for p in trail)
                     spread_y = max(p[1] for p in trail) - min(p[1] for p in trail)
                     if spread_x < 12 and spread_y < 12 and obs.enemy_count == 0:
-                        action = rng.choice(agent.actions)
+                        action = rng.choice(CONCRETE_ACTIONS)
                         trail.clear()
+                if action == "heuristic":
+                    action = project_action(heuristic_action(obs), CONCRETE_ACTIONS, rng)
                 obs, _reward, done, _info = env.step(action)
                 steps += 1
                 if not args.headless:

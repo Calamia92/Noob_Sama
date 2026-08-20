@@ -9,7 +9,11 @@ from typing import Any
 from src.eos_env import Observation, RANDOM_BASELINE_ACTIONS
 
 
-TRAIN_ACTIONS = [*RANDOM_BASELINE_ACTIONS, "interact"]
+CONCRETE_ACTIONS = [*RANDOM_BASELINE_ACTIONS, "interact"]
+
+# The extra meta-action delegates one move to the rule-based policy; the
+# Q-table then learns WHERE delegating beats its own moves.
+TRAIN_ACTIONS = [*CONCRETE_ACTIONS, "heuristic"]
 
 SECTORS = ["e", "ne", "n", "nw", "w", "sw", "s", "se"]
 
@@ -106,6 +110,8 @@ class QLearningAgent:
         actions: list[str],
         *,
         alpha: float = 0.2,
+        alpha_min: float = 0.05,
+        alpha_decay: float = 1.0,
         gamma: float = 0.95,
         epsilon: float = 1.0,
         epsilon_min: float = 0.05,
@@ -114,6 +120,8 @@ class QLearningAgent:
     ) -> None:
         self.actions = list(actions)
         self.alpha = alpha
+        self.alpha_min = alpha_min
+        self.alpha_decay = alpha_decay
         self.gamma = gamma
         self.epsilon = epsilon
         self.epsilon_min = epsilon_min
@@ -141,12 +149,17 @@ class QLearningAgent:
 
     def decay_epsilon(self) -> None:
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+        # Alpha decays with it so late experience refines values instead of
+        # overwriting them (the source of the post-peak oscillation).
+        self.alpha = max(self.alpha_min, self.alpha * self.alpha_decay)
 
     def save(self, path: Path | str, *, extra: dict[str, Any] | None = None) -> None:
         payload: dict[str, Any] = {
             "algo": "q_learning",
             "actions": self.actions,
             "alpha": self.alpha,
+            "alpha_min": self.alpha_min,
+            "alpha_decay": self.alpha_decay,
             "gamma": self.gamma,
             "epsilon": self.epsilon,
             "epsilon_min": self.epsilon_min,
@@ -166,6 +179,8 @@ class QLearningAgent:
         agent = cls(
             data["actions"],
             alpha=data["alpha"],
+            alpha_min=data.get("alpha_min", 0.05),
+            alpha_decay=data.get("alpha_decay", 1.0),
             gamma=data["gamma"],
             epsilon=data["epsilon"],
             epsilon_min=data["epsilon_min"],
