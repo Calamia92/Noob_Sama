@@ -191,53 +191,64 @@ observations structurees se discretisent naturellement, et une Q-table se
 sauvegarde en JSON de quelques dizaines de Ko, rechargeable trivialement et
 inspectable a l'oeil nu.
 
-L'etat compresse chaque observation en une cle compacte (~420 combinaisons
-possibles, ~96 reellement rencontrees) : direction de l'ennemi le plus proche
-(8 secteurs), sa distance (proche/moyen/loin, seuils 170/430 repris de
-l'heuristique), vie basse ou non, direction de la porte la plus proche quand la
-salle est vide, pickup utile a portee, interaction possible.
+L'etat compresse chaque observation en une cle compacte (~120 situations
+reellement rencontrees) : direction de l'ennemi le plus proche (8 secteurs),
+sa distance (proche/moyen/loin, seuils 170/430 repris de l'heuristique), vie
+basse ou non, direction relative en 8 secteurs de la porte cible quand la
+salle est vide, pickup utile a portee, interaction possible. La porte cible
+n'est pas la plus proche mais celle qui mene a la salle non visitee la plus
+proche (petit parcours BFS du graphe du donjon expose par le jeu), sinon
+l'agent fait des allers-retours entre salles deja nettoyees.
 
-Trois mecanismes completent le Q-learning de base :
+Quatre mecanismes completent le Q-learning de base :
 
 - **Exploration guidee** : pendant l'exploration, 60 % des coups sont joues par
   l'heuristique (`src/policies.py`) au lieu du pur hasard. Le Q-learning etant
-  off-policy, il apprend de ces demonstrations ; en evaluation l'heuristique est
-  totalement debranchee, seule la Q-table joue.
+  off-policy, il apprend de ces demonstrations.
+- **Meta-action de delegation** : une 16e action "heuristic" permet a l'agent
+  de deleguer un coup a l'heuristique ; la Q-table apprend OU deleguer et ou
+  jouer mieux qu'elle. Le plancher de performance devient l'heuristique, le
+  plafond la depasse localement. En evaluation, seule la Q-table decide (y
+  compris de deleguer) — c'est bien une politique apprise.
 - **Shaping de porte** (entrainement seulement) : se rapprocher de la sortie
   d'une salle vide donne un petit signal continu (~+0.15/step) qui mene au
   +10/salle, trop rare pour etre decouvert seul. Le score de comparaison ne
   change pas.
 - **Sauvegarde du meilleur** : eval greedy (epsilon=0) de 3 episodes tous les
   25 episodes ; si la moyenne bat le record, l'agent est sauvegarde dans
-  `models/best_agent.json`.
+  `models/best_agent.json`. Un detecteur de blocage (8 steps sans bouger hors
+  combat -> un coup aleatoire) joue en eval et en demo le role que
+  l'exploration joue pendant l'entrainement.
 
-Hyperparametres calcules depuis le budget d'echantillons (~9 visites par paire
-etat-action) : alpha 0.2, gamma 0.97 (horizon ~33 steps, un trajet vers une
-porte), epsilon 1.0 -> 0.10 atteint a 70 % du run, penalite HP 2.0.
+Hyperparametres calcules depuis le budget d'echantillons : alpha 0.25
+decroissant vers 0.05 en fin de run (fige les acquis, supprime l'oscillation
+post-pic), gamma 0.97 (horizon ~33 steps, un trajet vers une porte), epsilon
+1.0 -> 0.10 atteint a 70 % du run, penalite HP 2.0.
 
-Commande du run complet :
+Commande du run complet (400 episodes, puis prolongation par reprise) :
 
 ```bash
-python scripts/train.py --episodes 300 --max-steps 100 --seed 42 --gamma 0.97 --epsilon-min 0.1 --guide-ratio 0.6 --door-shaping 0.005
+python scripts/train.py --episodes 400 --max-steps 100 --seed 42 --gamma 0.97 --epsilon-min 0.1 --guide-ratio 0.6 --door-shaping 0.005
+python scripts/train.py --resume --episodes 800 --max-steps 100 --seed 42 --gamma 0.97 --epsilon-min 0.1 --guide-ratio 0.6 --door-shaping 0.005
 ```
 
 ## Resultats de l'entrainement
 
-Run de 300 episodes x 100 steps (~1 h 45), scores dans
-`reports/training_scores.csv` (une ligne par episode, train et eval).
+800 episodes x 100 steps au total (~4 h, en deux runs chaines par `--resume`),
+scores dans `reports/training_scores.csv` (une ligne par episode, train et
+eval, 32 points d'evaluation).
 
-Evals greedy (moyenne de 3 episodes, meme score que la baseline) :
-
-| Episode | 25 | 50 | 75 | 100 | 125 | 150 | 175 | 200 | 225 | 250 | 275 | 300 |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Score | 6.46 | 1.73 | 5.99 | **11.39** | 7.62 | 2.19 | 2.66 | 2.16 | 2.56 | 2.29 | 5.69 | 2.34 |
-
-- Meilleur agent (eval@100) : score moyen **11.39**, soit **6x la baseline
-  aleatoire (1.836)**. Deux parties sur trois terminent une salle et font
-  3 a 5 kills — ce que l'aleatoire n'a jamais fait une seule fois.
-- Pendant l'entrainement : 615 kills et 101 salles terminees en 300 episodes.
-- Le meilleur agent est conserve dans `models/best_agent.json` (rechargement
-  verifie depuis un script neuf).
+- Meilleur agent (eval@750) : score moyen **15.198**, soit **8.3x la baseline
+  aleatoire (1.836)** — dans la fourchette de l'heuristique de reference.
+- Progression du record au fil des evals : 6.74 (ep. 25) -> 10.64 (ep. 100)
+  -> 11.66 (ep. 250) -> 12.05 (ep. 450) -> 14.98 (ep. 575) -> **15.20 (ep. 750)**.
+  Sur la seconde moitie du run, la majorite des evals depassent 10.
+- Pendant l'entrainement : 2 132 kills et 408 salles terminees en 800 episodes
+  (l'aleatoire : 0 kill, 0 salle en 20 parties).
+- En demo longue (300 steps par partie), l'agent tourne autour de 15-22 points
+  avec salle nettoyee et 3-8 kills par partie.
+- Le meilleur agent est conserve dans `models/best_agent.json` (126 etats,
+  16 actions, ~60 Ko), rechargement verifie depuis un script neuf.
 
 ## Demo de l'agent entraine
 
@@ -252,21 +263,37 @@ C'est la commande a utiliser pour la video de demonstration.
 
 ## Essais et difficultes (pour le carnet d'essais)
 
-1. **V1 aveugle aux portes** : la premiere version de l'etat n'encodait pas la
-   direction de la sortie. En 50 episodes, zero salle terminee et un plafond
-   d'eval a 2.29 : dans une salle vide, tous les points donnaient le meme etat,
-   l'agent ne pouvait structurellement pas apprendre a sortir. Correctif mesure :
-   direction de porte dans l'etat + exploration guidee -> premiere salle
-   terminee en eval des l'episode 25 du run suivant.
-2. **Politique froussarde temporaire** : a l'eval@50, l'agent survivait 100
-   steps sans un seul kill (score ~1.7) — les grosses penalites HP des morts
-   recentes avaient temporairement ecrase les valeurs de combat apprises des
-   demonstrations. Resolu de lui-meme avec plus d'episodes (pic a 11.39 a
-   l'episode 100).
-3. **Oscillation avec alpha constant** : apres le pic de l'episode 100, les
-   evals oscillent (7.62 -> 2.19 -> ... -> 5.69 -> 2.34) sans converger : avec
-   alpha fixe a 0.2, la table court toujours apres ses dernieres experiences.
-   Le mecanisme "on garde le meilleur" protege le livrable. Avec plus de temps :
-   alpha decroissant, davantage d'episodes d'eval par checkpoint (3 est bruite
-   dans des donjons aleatoires non seedables), et un petit DQN sur les memes
-   features pour generaliser entre etats voisins.
+L'agent final est le resultat de cinq iterations, chacune declenchee par un
+echec observe et mesure :
+
+1. **V1 aveugle aux portes** : l'etat n'encodait pas la direction de la sortie.
+   En 50 episodes, zero salle terminee, plafond d'eval a 2.29 : dans une salle
+   vide tous les points donnaient le meme etat, sortir etait inapprenable.
+2. **V2 ping-pong** : apres ajout de la direction de porte, l'agent visait la
+   porte la plus proche... qui est celle dans son dos quand il vient d'entrer.
+   Allers-retours infinis entre salles nettoyees. Correctif : cibler par BFS la
+   porte qui mene a la salle non visitee la plus proche.
+3. **V3 colle aux murs** : la porte etait encodee par son mur (haut/bas/...),
+   pas par sa direction relative — l'agent pressait "haut" sans s'aligner avec
+   l'ouverture et se coincait contre le mur. Correctif : direction relative en
+   8 secteurs (s'aligner d'abord, traverser ensuite).
+4. **Politique deterministe qui se fige** : en jeu greedy pur, un obstacle
+   invisible dans l'etat piegeait l'agent dans une boucle meme action -> meme
+   blocage (l'exploration le decoincait pendant l'entrainement, plus rien en
+   demo). Correctif : detecteur de blocage avec un coup aleatoire de sortie.
+5. **Oscillation avec alpha constant** : dans les premiers runs, les evals
+   s'effondraient apres chaque pic (11.39 -> 2.2) car la table courait toujours
+   apres ses dernieres experiences. Correctifs combines : alpha decroissant
+   0.25 -> 0.05 + meta-action de delegation (plancher heuristique). Resultat :
+   plancher d'eval a ~6 au lieu de ~2, et un record qui monte de 10.64 a 15.20
+   au fil des 800 episodes au lieu de s'eroder.
+
+Autres lecons : la penalite HP (-2/HP) peut rendre l'agent "froussard" apres
+une serie de morts (observe puis resorbe avec plus d'episodes) ; les evals a
+3 episodes restent bruitees car les donjons ne sont pas seedables (mitige par
+le record = moyenne, et 32 points d'eval).
+
+Avec plus de temps : davantage d'episodes d'eval par checkpoint, un deuxieme
+run complet avec une autre seed pour comparer les courbes, et un petit DQN sur
+les memes features pour generaliser entre etats voisins (le plafond actuel est
+la granularite de la table, pas le volume d'entrainement).
