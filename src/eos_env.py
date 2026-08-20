@@ -92,6 +92,7 @@ class Observation:
     nearest_pickup: dict[str, Any] | None
     nearest_shop_item: dict[str, Any] | None
     nearest_door: dict[str, Any] | None
+    target_door: dict[str, Any] | None
     near_choice: dict[str, Any] | None
     portal: dict[str, Any] | None
     available_doors: list[dict[str, Any]]
@@ -248,6 +249,33 @@ class EclipseEnv:
                     nearestDoor = availableDoors[0] || null;
                 }
 
+                // Door leading toward the closest unvisited room (BFS over the
+                // dungeon graph). Prevents ping-ponging between cleared rooms.
+                let targetDoor = nearestDoor;
+                if (availableDoors.length && g.dungeon?.nodes && node) {
+                    const dirs = { up: [0, -1], right: [1, 0], down: [0, 1], left: [-1, 0] };
+                    const key = (x, y) => x + ',' + y;
+                    const seen = new Set([key(node.gx, node.gy)]);
+                    const queue = [[node.gx, node.gy, null]];
+                    let bestDir = null;
+                    while (queue.length) {
+                        const [cx, cy, firstDir] = queue.shift();
+                        const cur = g.dungeon.nodes.get(key(cx, cy));
+                        if (!cur) continue;
+                        if (!cur.visited && firstDir) { bestDir = firstDir; break; }
+                        for (const [dir, [dx, dy]] of Object.entries(dirs)) {
+                            if (!cur.doors || !cur.doors[dir]) continue;
+                            const nk = key(cx + dx, cy + dy);
+                            if (seen.has(nk)) continue;
+                            seen.add(nk);
+                            queue.push([cx + dx, cy + dy, firstDir || dir]);
+                        }
+                    }
+                    if (bestDir) {
+                        targetDoor = availableDoors.find((d) => d.dir === bestDir) || nearestDoor;
+                    }
+                }
+
                 let nearestShopItem = null;
                 if (node?.type === 'shop' && node.shopStock && room?.shopSlots) {
                     const slots = room.shopSlots();
@@ -313,6 +341,7 @@ class EclipseEnv:
                     nearest_pickup: activePickups[0] || null,
                     nearest_shop_item: nearestShopItem,
                     nearest_door: nearestDoor,
+                    target_door: targetDoor,
                     near_choice: nearChoice,
                     portal,
                     available_doors: availableDoors,

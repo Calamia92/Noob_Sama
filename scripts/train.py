@@ -88,8 +88,9 @@ def parse_args() -> argparse.Namespace:
 def door_potential(obs: Observation, weight: float) -> float:
     # Dense training signal toward the exit of a cleared room; the sparse
     # +10 room reward alone is almost never seen in 100-step episodes.
-    if obs.state == "play" and obs.doors_open and obs.nearest_enemy is None and obs.nearest_door:
-        return -weight * obs.nearest_door["distance"]
+    door = obs.target_door or obs.nearest_door
+    if obs.state == "play" and obs.doors_open and obs.nearest_enemy is None and door:
+        return -weight * door["distance"]
     return 0.0
 
 

@@ -71,10 +71,11 @@ def discretize(obs: Observation) -> str:
     # Once the room is clear, the agent needs to know WHERE the exit is,
     # otherwise every point of an empty room looks identical and it cannot
     # learn to leave (no rooms were ever cleared without this).
+    exit_door = obs.target_door or obs.nearest_door
     if not obs.doors_open:
         doors = "d0"
-    elif enemy is None and obs.nearest_door:
-        doors = "d" + obs.nearest_door["dir"][0]
+    elif enemy is None and exit_door:
+        doors = "d" + exit_door["dir"][0]
     else:
         doors = "d1"
     pickup = int(_useful_pickup_nearby(obs))

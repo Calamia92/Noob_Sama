@@ -40,8 +40,9 @@ def heuristic_action(obs: Observation) -> str:
             return "interact"
         return _move_towards(obs, obs.portal)
 
-    if obs.doors_open and obs.nearest_door:
-        return _move_towards(obs, obs.nearest_door)
+    exit_door = obs.target_door or obs.nearest_door
+    if obs.doors_open and exit_door:
+        return _move_towards(obs, exit_door)
 
     enemy = obs.nearest_enemy
     if enemy:
