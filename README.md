@@ -239,6 +239,17 @@ Evals greedy (moyenne de 3 episodes, meme score que la baseline) :
 - Le meilleur agent est conserve dans `models/best_agent.json` (rechargement
   verifie depuis un script neuf).
 
+## Demo de l'agent entraine
+
+Le script recharge `models/best_agent.json` depuis un script neuf, sans
+relancer l'entrainement, et ouvre un navigateur visible :
+
+```bash
+python scripts/watch_agent.py --episodes 3
+```
+
+C'est la commande a utiliser pour la video de demonstration.
+
 ## Essais et difficultes (pour le carnet d'essais)
 
 1. **V1 aveugle aux portes** : la premiere version de l'etat n'encodait pas la
