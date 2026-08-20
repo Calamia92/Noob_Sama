@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import random
 import statistics
 import sys
 from pathlib import Path
@@ -43,13 +44,26 @@ def main() -> None:
         slow_mo=0 if args.headless else 50,
         step_seconds=args.step_seconds,
     ) as env:
+        rng = random.Random()
         for episode in range(1, args.episodes + 1):
             obs = env.reset()
             done = False
             steps = 0
+            trail: list[tuple[float, float]] = []
 
             while not done and steps < args.max_steps:
                 action = agent.act(discretize(obs), greedy=True)
+                # A deterministic greedy policy can pin itself against an
+                # obstacle the state does not encode; one random move plays
+                # the unsticking role exploration has during training.
+                trail.append((obs.x, obs.y))
+                if len(trail) > 8:
+                    trail.pop(0)
+                    spread_x = max(p[0] for p in trail) - min(p[0] for p in trail)
+                    spread_y = max(p[1] for p in trail) - min(p[1] for p in trail)
+                    if spread_x < 12 and spread_y < 12 and obs.enemy_count == 0:
+                        action = rng.choice(agent.actions)
+                        trail.clear()
                 obs, _reward, done, _info = env.step(action)
                 steps += 1
                 if not args.headless:
