@@ -27,7 +27,8 @@ env/
 !.env.example
 
 # Training artifacts and generated data
-models/
+models/*
+!models/best_agent.json
 checkpoints/
 runs/
 data/
