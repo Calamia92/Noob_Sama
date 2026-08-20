@@ -104,6 +104,33 @@ reward = delta_score - hp_lost * 2
 La baseline demandee par la consigne sera mesuree avec l'agent aleatoire sur le
 meme score et le meme nombre de parties que l'agent entraine.
 
+## Baseline aleatoire
+
+Baseline mesuree le 20 aout 2026 avec :
+
+```bash
+.venv/bin/python scripts/baseline_random.py --episodes 20 --max-steps 100 --seed 42
+```
+
+Resultats :
+
+- Episodes : 20.
+- Budget : 100 steps maximum par episode.
+- Seed : 42.
+- Score moyen : 1.646.
+- Score minimum : 1.610.
+- Score maximum : 1.664.
+- Ecart-type : 0.013.
+- Reward moyenne : 1.565.
+- Kills : 0 sur tous les episodes.
+- Salles terminees : 0 sur tous les episodes.
+
+Conclusion : l'agent aleatoire survit quelques secondes mais ne progresse pas
+dans le donjon avec ce budget. Le premier agent entraine devra etre compare sur
+le meme nombre d'episodes et le meme budget de steps.
+
+Donnees : `reports/random_baseline.csv`.
+
 ## Prochaine etape technique
 
 Le wrapper d'environnement doit exposer une interface minimale :
