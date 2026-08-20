@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Training artifacts and generated data
+models/
+checkpoints/
+runs/
+data/
+datasets/
+artifacts/
+outputs/
+output/
+results/
+logs/
+*.pkl
+*.pickle
+*.pt
+*.pth
+*.onnx
+*.h5
+*.npy
+*.npz
+
+# Videos and recordings
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+videos/
+recordings/
+
+# Browser automation artifacts
+playwright-report/
+test-results/
+traces/
+screenshots/
+
+# OS files
+.DS_Store
+Thumbs.db
