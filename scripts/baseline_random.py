@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.eos_env import ACTIONS, EclipseEnv
+from src.eos_env import EclipseEnv, RANDOM_BASELINE_ACTIONS
 
 
 DEFAULT_OUTPUT = ROOT / "reports" / "random_baseline.csv"
@@ -31,7 +31,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     rng = random.Random(args.seed)
-    actions = list(ACTIONS)
+    actions = list(RANDOM_BASELINE_ACTIONS)
     rows: list[dict[str, object]] = []
 
     args.output.parent.mkdir(parents=True, exist_ok=True)

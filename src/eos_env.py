@@ -16,16 +16,51 @@ ACTIONS: dict[str, list[str]] = {
     "down": ["KeyS"],
     "left": ["KeyA"],
     "right": ["KeyD"],
+    "up_left": ["KeyW", "KeyA"],
+    "up_right": ["KeyW", "KeyD"],
+    "down_left": ["KeyS", "KeyA"],
+    "down_right": ["KeyS", "KeyD"],
     "shoot_up": ["ArrowUp"],
     "shoot_down": ["ArrowDown"],
     "shoot_left": ["ArrowLeft"],
     "shoot_right": ["ArrowRight"],
     "dash": ["Space"],
+    "interact": ["KeyE"],
     "up_shoot_up": ["KeyW", "ArrowUp"],
+    "up_shoot_down": ["KeyW", "ArrowDown"],
+    "up_shoot_left": ["KeyW", "ArrowLeft"],
+    "up_shoot_right": ["KeyW", "ArrowRight"],
+    "down_shoot_up": ["KeyS", "ArrowUp"],
     "down_shoot_down": ["KeyS", "ArrowDown"],
+    "down_shoot_left": ["KeyS", "ArrowLeft"],
+    "down_shoot_right": ["KeyS", "ArrowRight"],
+    "left_shoot_up": ["KeyA", "ArrowUp"],
+    "left_shoot_down": ["KeyA", "ArrowDown"],
     "left_shoot_left": ["KeyA", "ArrowLeft"],
+    "left_shoot_right": ["KeyA", "ArrowRight"],
+    "right_shoot_up": ["KeyD", "ArrowUp"],
+    "right_shoot_down": ["KeyD", "ArrowDown"],
+    "right_shoot_left": ["KeyD", "ArrowLeft"],
     "right_shoot_right": ["KeyD", "ArrowRight"],
 }
+
+
+RANDOM_BASELINE_ACTIONS = [
+    "noop",
+    "up",
+    "down",
+    "left",
+    "right",
+    "shoot_up",
+    "shoot_down",
+    "shoot_left",
+    "shoot_right",
+    "dash",
+    "up_shoot_up",
+    "down_shoot_down",
+    "left_shoot_left",
+    "right_shoot_right",
+]
 
 
 @dataclass(frozen=True)
@@ -40,6 +75,24 @@ class Observation:
     rooms: int
     floors: int
     time: float
+    hp_missing: float
+    gold: int
+    item_count: int
+    room_type: str | None
+    room_cleared: bool
+    abyss_gate: bool
+    doors_open: bool
+    portal_active: bool
+    enemy_count: int
+    pickup_count: int
+    nearest_enemy: dict[str, Any] | None
+    nearest_pickup: dict[str, Any] | None
+    nearest_shop_item: dict[str, Any] | None
+    nearest_door: dict[str, Any] | None
+    near_choice: dict[str, Any] | None
+    portal: dict[str, Any] | None
+    available_doors: list[dict[str, Any]]
+    pickups: list[dict[str, Any]]
 
 
 class EclipseEnv:
@@ -112,8 +165,116 @@ class EclipseEnv:
         data = self._eval_game(
             """() => {
                 const g = window.__eosGame;
+                const dbg = window.__eosDebug || {};
                 const p = g.player || {};
                 const s = g.stats || {};
+                const room = g.room || null;
+                const node = g.node || null;
+
+                const dist = (x, y) => Math.hypot((p.x ?? 0) - x, (p.y ?? 0) - y);
+                const activeEnemies = [];
+                const enemies = dbg.enemies;
+                if (enemies) {
+                    for (let i = 0; i < enemies.count; i++) {
+                        const e = enemies.items[i];
+                        if (!e || e.hp <= 0 || e.spawnTimer > 0) continue;
+                        activeEnemies.push({
+                            x: e.x ?? 0,
+                            y: e.y ?? 0,
+                            hp: e.hp ?? 0,
+                            max_hp: e.maxHp ?? 0,
+                            type: e.type?.id || e.type?.name || null,
+                            state: e.state || null,
+                            elite: !!e.elite,
+                            boss: !!e.type?.boss,
+                            distance: dist(e.x ?? 0, e.y ?? 0),
+                        });
+                    }
+                }
+                activeEnemies.sort((a, b) => a.distance - b.distance);
+
+                const activePickups = [];
+                const pickups = dbg.pickups;
+                if (pickups) {
+                    for (let i = 0; i < pickups.count; i++) {
+                        const item = pickups.items[i];
+                        if (!item) continue;
+                        activePickups.push({
+                            x: item.x ?? 0,
+                            y: item.y ?? 0,
+                            type: item.type || null,
+                            value: item.value ?? 0,
+                            choice: !!item.choice,
+                            item_name: item.item?.name || null,
+                            item_rarity: item.item?.rarity || null,
+                            item_desc: item.item?.desc || null,
+                            distance: dist(item.x ?? 0, item.y ?? 0),
+                        });
+                    }
+                }
+                activePickups.sort((a, b) => a.distance - b.distance);
+
+                let availableDoors = [];
+                let nearestDoor = null;
+                if (room?.node?.doors && room.doorsOpen) {
+                    const centers = {
+                        up: { x: room.w / 2, y: 0 },
+                        down: { x: room.w / 2, y: room.h },
+                        left: { x: 0, y: room.h / 2 },
+                        right: { x: room.w, y: room.h / 2 },
+                    };
+                    availableDoors = Object.entries(room.node.doors)
+                        .filter(([, open]) => !!open)
+                        .map(([dir]) => ({
+                            dir,
+                            x: centers[dir].x,
+                            y: centers[dir].y,
+                            distance: dist(centers[dir].x, centers[dir].y),
+                        }))
+                        .sort((a, b) => a.distance - b.distance);
+                    nearestDoor = availableDoors[0] || null;
+                }
+
+                let nearestShopItem = null;
+                if (node?.type === 'shop' && node.shopStock && room?.shopSlots) {
+                    const slots = room.shopSlots();
+                    const shopItems = node.shopStock
+                        .map((slot, i) => {
+                            if (!slot || slot.sold || !slots[i]) return null;
+                            return {
+                                x: slots[i].x,
+                                y: slots[i].y,
+                                kind: slot.kind || null,
+                                price: slot.price ?? 0,
+                                item_name: slot.item?.name || null,
+                                item_rarity: slot.item?.rarity || null,
+                                item_desc: slot.item?.desc || null,
+                                distance: dist(slots[i].x, slots[i].y),
+                            };
+                        })
+                        .filter(Boolean)
+                        .sort((a, b) => a.distance - b.distance);
+                    nearestShopItem = shopItems[0] || null;
+                }
+
+                const nearChoice = g.nearChoice ? {
+                    x: g.nearChoice.x ?? 0,
+                    y: g.nearChoice.y ?? 0,
+                    type: g.nearChoice.type || null,
+                    value: g.nearChoice.value ?? 0,
+                    choice: !!g.nearChoice.choice,
+                    item_name: g.nearChoice.item?.name || null,
+                    item_rarity: g.nearChoice.item?.rarity || null,
+                    item_desc: g.nearChoice.item?.desc || null,
+                    distance: dist(g.nearChoice.x ?? 0, g.nearChoice.y ?? 0),
+                } : null;
+
+                const portal = room?.portalActive ? {
+                    x: room.w / 2,
+                    y: room.h / 2,
+                    distance: dist(room.w / 2, room.h / 2),
+                } : null;
+
                 return {
                     state: g.state,
                     hp: p.hp ?? 0,
@@ -125,6 +286,24 @@ class EclipseEnv:
                     rooms: s.rooms ?? 0,
                     floors: s.floors ?? 0,
                     time: s.time ?? 0,
+                    hp_missing: Math.max(0, (p.maxHp ?? 0) - (p.hp ?? 0)),
+                    gold: p.gold ?? 0,
+                    item_count: p.items?.length ?? 0,
+                    room_type: node?.type || null,
+                    room_cleared: !!node?.cleared,
+                    abyss_gate: !!node?.abyssGate,
+                    doors_open: !!room?.doorsOpen,
+                    portal_active: !!room?.portalActive,
+                    enemy_count: activeEnemies.length,
+                    pickup_count: activePickups.length,
+                    nearest_enemy: activeEnemies[0] || null,
+                    nearest_pickup: activePickups[0] || null,
+                    nearest_shop_item: nearestShopItem,
+                    nearest_door: nearestDoor,
+                    near_choice: nearChoice,
+                    portal,
+                    available_doors: availableDoors,
+                    pickups: activePickups.slice(0, 8),
                 };
             }"""
         )
@@ -186,8 +365,17 @@ class EclipseEnv:
         response = route.fetch()
         source = response.text()
         patched = source.replace(
+            "import { Game } from './game/game.js';",
+            "import { Game } from './game/game.js';\n"
+            "import { enemies } from './game/enemy.js';\n"
+            "import { pickups } from './game/pickup.js';",
+            1,
+        )
+        patched = patched.replace(
             "const game = new Game(view);",
-            "const game = new Game(view); window.__eosGame = game;",
+            "const game = new Game(view); "
+            "window.__eosGame = game; "
+            "window.__eosDebug = { enemies, pickups };",
             1,
         )
         route.fulfill(

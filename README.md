@@ -55,6 +55,22 @@ lit l'etat interne expose par le jeu :
 - `rooms` : salles terminees pendant la run.
 - `floors` : etages termines pendant la run.
 - `time` : temps ecoule dans la run.
+- `gold` : or disponible.
+- `item_count` : nombre d'objets deja obtenus.
+- `room_type` : type de salle (`start`, `combat`, `shop`, `treasure`, etc.).
+- `room_cleared` : indique si la salle courante est consideree terminee.
+- `abyss_gate` : indique la presence d'une porte abyss optionnelle.
+- `doors_open` : indique si les portes de la salle sont ouvertes.
+- `portal_active` : indique si le portail d'etage est actif.
+- `enemy_count` : nombre d'ennemis actifs.
+- `nearest_enemy` : ennemi actif le plus proche, avec position, HP, type et distance.
+- `nearest_pickup` : pickup le plus proche, avec type, rarete d'objet et distance.
+- `nearest_shop_item` : objet ou soin achetable le plus proche, avec prix.
+- `nearest_door` : porte ouverte la plus proche.
+- `near_choice` : objet de salle item actuellement selectionnable avec `E`.
+- `portal` : position et distance du portail actif apres boss.
+- `available_doors` : portes ouvertes disponibles, triees par distance.
+- `pickups` : liste courte des pickups visibles.
 
 Ce choix evite un apprentissage depuis pixels bruts, trop couteux pour deux
 jours, et permet de mesurer rapidement si l'agent fait mieux que le hasard.
@@ -77,10 +93,36 @@ Les actions disponibles dans le wrapper sont volontairement simples :
 - `down_shoot_down`
 - `left_shoot_left`
 - `right_shoot_right`
+- `interact`
+- deplacements diagonaux
+- combinaisons deplacement + tir independant, par exemple `left_shoot_right`
 
-On commence avec peu d'actions pour limiter l'espace de decision. D'autres
-combinaisons pourront etre ajoutees seulement si la baseline et le premier
-entrainement tournent correctement.
+La baseline aleatoire conserve l'ancien espace d'actions simple pour rester
+reproductible. Les actions enrichies servent surtout au futur agent entraine et
+a la politique heuristique.
+
+Une politique heuristique de reference est disponible :
+
+```bash
+.venv/bin/python scripts/play_heuristic.py --watch --episodes 1 --max-steps 120
+```
+
+Elle n'est pas l'agent entraine. Elle sert de guide de comportement : viser
+l'ennemi proche, garder ses distances, ramasser les pickups utiles, interagir
+avec les objets/shops accessibles, puis aller vers les portes ou portails.
+
+Cas speciaux deja pris en compte par cette heuristique :
+
+- item room / treasure room : aller vers l'objet propose et valider avec `E`
+  quand le choix est a portee.
+- shop : acheter seulement si l'or suffit et si l'achat est utile, par exemple
+  soin uniquement quand il manque de la vie.
+- boss room : combattre comme une salle normale, puis aller au portail central
+  et valider avec `E` quand le boss est vaincu.
+- salles risquees (`altar`, `defi`, `scelle`, `gambler`) : ne pas declencher
+  volontairement d'interaction optionnelle pour eviter de perdre une run de demo.
+- abyss gate : detectee, mais non priorisee pour la premiere version car c'est
+  un risque optionnel.
 
 ## Recompense et score proposes
 
@@ -133,7 +175,7 @@ Donnees : `reports/random_baseline.csv`.
 
 ## Prochaine etape technique
 
-Le wrapper d'environnement doit exposer une interface minimale :
+Le wrapper d'environnement expose l'interface minimale :
 
 ```python
 reset()
@@ -143,6 +185,9 @@ get_score()
 is_done()
 ```
 
-Pour eviter l'OCR sur le canvas, la piste privilegiee est d'utiliser Playwright
-et d'injecter une petite modification au chargement du jeu pour rendre l'instance
-`Game` accessible depuis le navigateur, par exemple via `window.__eosGame`.
+Pour eviter l'OCR sur le canvas, le wrapper utilise Playwright et injecte une
+petite modification au chargement du jeu pour rendre l'instance `Game` et les
+pools `enemies` / `pickups` accessibles depuis le navigateur.
+
+La prochaine etape est d'utiliser ces observations enrichies pour entrainer un
+agent qui bat clairement la baseline aleatoire sur le meme protocole.
