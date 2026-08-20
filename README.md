@@ -148,7 +148,15 @@ meme score et le meme nombre de parties que l'agent entraine.
 
 ## Baseline aleatoire
 
-Baseline mesuree le 20 aout 2026 avec :
+Le wrapper a ete accelere (une seule lecture d'etat par step au lieu de trois,
+soit environ 4 steps par seconde au lieu de 2). Comme le jeu tourne en temps
+reel, ce changement modifie le temps de jeu couvert par un meme nombre de
+steps : la baseline a donc ete re-mesuree sur l'environnement accelere pour
+garder une comparaison honnete. Autre effet du changement : la somme des
+rewards d'un episode correspond maintenant exactement au score final moins les
+HP perdus (avant, ce qui se passait entre deux steps n'etait compte nulle part).
+
+Baseline re-mesuree le 20 aout 2026 avec :
 
 ```bash
 .venv/bin/python scripts/baseline_random.py --episodes 20 --max-steps 100 --seed 42
@@ -159,11 +167,11 @@ Resultats :
 - Episodes : 20.
 - Budget : 100 steps maximum par episode.
 - Seed : 42.
-- Score moyen : 1.646.
-- Score minimum : 1.610.
-- Score maximum : 1.664.
-- Ecart-type : 0.013.
-- Reward moyenne : 1.565.
+- Score moyen : 1.836.
+- Score minimum : 1.742.
+- Score maximum : 2.252.
+- Ecart-type : 0.132.
+- Reward moyenne : 1.799.
 - Kills : 0 sur tous les episodes.
 - Salles terminees : 0 sur tous les episodes.
 
