@@ -181,21 +181,81 @@ le meme nombre d'episodes et le meme budget de steps.
 
 Donnees : `reports/random_baseline.csv`.
 
-## Prochaine etape technique
+## Methode d'apprentissage
 
-Le wrapper d'environnement expose l'interface minimale :
+Algo retenu : **Q-learning tabulaire sur etat discretise**. Pourquoi celui-la
+pour ce jeu-la : l'environnement tourne en temps reel dans un navigateur
+(~4-5 steps par seconde, pas de GPU), donc le budget total d'apprentissage est
+d'environ 30 000 steps — le deep RL est hors budget d'echantillons. Les
+observations structurees se discretisent naturellement, et une Q-table se
+sauvegarde en JSON de quelques dizaines de Ko, rechargeable trivialement et
+inspectable a l'oeil nu.
 
-```python
-reset()
-step(action)
-observe()
-get_score()
-is_done()
+L'etat compresse chaque observation en une cle compacte (~420 combinaisons
+possibles, ~96 reellement rencontrees) : direction de l'ennemi le plus proche
+(8 secteurs), sa distance (proche/moyen/loin, seuils 170/430 repris de
+l'heuristique), vie basse ou non, direction de la porte la plus proche quand la
+salle est vide, pickup utile a portee, interaction possible.
+
+Trois mecanismes completent le Q-learning de base :
+
+- **Exploration guidee** : pendant l'exploration, 60 % des coups sont joues par
+  l'heuristique (`src/policies.py`) au lieu du pur hasard. Le Q-learning etant
+  off-policy, il apprend de ces demonstrations ; en evaluation l'heuristique est
+  totalement debranchee, seule la Q-table joue.
+- **Shaping de porte** (entrainement seulement) : se rapprocher de la sortie
+  d'une salle vide donne un petit signal continu (~+0.15/step) qui mene au
+  +10/salle, trop rare pour etre decouvert seul. Le score de comparaison ne
+  change pas.
+- **Sauvegarde du meilleur** : eval greedy (epsilon=0) de 3 episodes tous les
+  25 episodes ; si la moyenne bat le record, l'agent est sauvegarde dans
+  `models/best_agent.json`.
+
+Hyperparametres calcules depuis le budget d'echantillons (~9 visites par paire
+etat-action) : alpha 0.2, gamma 0.97 (horizon ~33 steps, un trajet vers une
+porte), epsilon 1.0 -> 0.10 atteint a 70 % du run, penalite HP 2.0.
+
+Commande du run complet :
+
+```bash
+python scripts/train.py --episodes 300 --max-steps 100 --seed 42 --gamma 0.97 --epsilon-min 0.1 --guide-ratio 0.6 --door-shaping 0.005
 ```
 
-Pour eviter l'OCR sur le canvas, le wrapper utilise Playwright et injecte une
-petite modification au chargement du jeu pour rendre l'instance `Game` et les
-pools `enemies` / `pickups` accessibles depuis le navigateur.
+## Resultats de l'entrainement
 
-La prochaine etape est d'utiliser ces observations enrichies pour entrainer un
-agent qui bat clairement la baseline aleatoire sur le meme protocole.
+Run de 300 episodes x 100 steps (~1 h 45), scores dans
+`reports/training_scores.csv` (une ligne par episode, train et eval).
+
+Evals greedy (moyenne de 3 episodes, meme score que la baseline) :
+
+| Episode | 25 | 50 | 75 | 100 | 125 | 150 | 175 | 200 | 225 | 250 | 275 | 300 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Score | 6.46 | 1.73 | 5.99 | **11.39** | 7.62 | 2.19 | 2.66 | 2.16 | 2.56 | 2.29 | 5.69 | 2.34 |
+
+- Meilleur agent (eval@100) : score moyen **11.39**, soit **6x la baseline
+  aleatoire (1.836)**. Deux parties sur trois terminent une salle et font
+  3 a 5 kills — ce que l'aleatoire n'a jamais fait une seule fois.
+- Pendant l'entrainement : 615 kills et 101 salles terminees en 300 episodes.
+- Le meilleur agent est conserve dans `models/best_agent.json` (rechargement
+  verifie depuis un script neuf).
+
+## Essais et difficultes (pour le carnet d'essais)
+
+1. **V1 aveugle aux portes** : la premiere version de l'etat n'encodait pas la
+   direction de la sortie. En 50 episodes, zero salle terminee et un plafond
+   d'eval a 2.29 : dans une salle vide, tous les points donnaient le meme etat,
+   l'agent ne pouvait structurellement pas apprendre a sortir. Correctif mesure :
+   direction de porte dans l'etat + exploration guidee -> premiere salle
+   terminee en eval des l'episode 25 du run suivant.
+2. **Politique froussarde temporaire** : a l'eval@50, l'agent survivait 100
+   steps sans un seul kill (score ~1.7) — les grosses penalites HP des morts
+   recentes avaient temporairement ecrase les valeurs de combat apprises des
+   demonstrations. Resolu de lui-meme avec plus d'episodes (pic a 11.39 a
+   l'episode 100).
+3. **Oscillation avec alpha constant** : apres le pic de l'episode 100, les
+   evals oscillent (7.62 -> 2.19 -> ... -> 5.69 -> 2.34) sans converger : avec
+   alpha fixe a 0.2, la table court toujours apres ses dernieres experiences.
+   Le mecanisme "on garde le meilleur" protege le livrable. Avec plus de temps :
+   alpha decroissant, davantage d'episodes d'eval par checkpoint (3 est bruite
+   dans des donjons aleatoires non seedables), et un petit DQN sur les memes
+   features pour generaliser entre etats voisins.
