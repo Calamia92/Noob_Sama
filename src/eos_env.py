@@ -45,6 +45,9 @@ ACTIONS: dict[str, list[str]] = {
 }
 
 
+TERMINAL_STATES = {"gameover", "victory"}
+
+
 RANDOM_BASELINE_ACTIONS = [
     "noop",
     "up",
@@ -110,6 +113,7 @@ class EclipseEnv:
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
         self.page: Page | None = None
+        self._last_obs: Observation | None = None
 
     def __enter__(self) -> "EclipseEnv":
         self.start()
@@ -127,18 +131,24 @@ class EclipseEnv:
         self._context = self._browser.new_context(viewport={"width": 1280, "height": 720})
         self.page = self._context.new_page()
         self.page.route("**/js/main.js", self._patch_main_js)
+        self._last_obs = None
 
     def close(self) -> None:
-        if self._context:
-            self._context.close()
-        if self._browser:
-            self._browser.close()
-        if self._playwright:
-            self._playwright.stop()
+        # Tolerant teardown so a crashed browser can be restarted cleanly.
+        for closer in (
+            lambda: self._context.close() if self._context else None,
+            lambda: self._browser.close() if self._browser else None,
+            lambda: self._playwright.stop() if self._playwright else None,
+        ):
+            try:
+                closer()
+            except Exception:
+                pass
         self._context = None
         self._browser = None
         self._playwright = None
         self.page = None
+        self._last_obs = None
 
     def reset(self) -> Observation:
         page = self._require_page()
@@ -155,11 +165,14 @@ class EclipseEnv:
         if action not in ACTIONS:
             raise ValueError(f"Unknown action {action!r}. Available actions: {sorted(ACTIONS)}")
 
-        before = self.observe()
+        # Reuse the previous snapshot as "before": a single evaluate per step
+        # roughly doubles the real-time step rate.
+        before = self._last_obs if self._last_obs is not None else self.observe()
         self._hold_keys(ACTIONS[action], self.step_seconds)
         after = self.observe()
         reward = self._reward(before, after)
-        return after, reward, self.is_done(), {"action": action}
+        done = after.state in TERMINAL_STATES
+        return after, reward, done, {"action": action}
 
     def observe(self) -> Observation:
         data = self._eval_game(
@@ -307,14 +320,21 @@ class EclipseEnv:
                 };
             }"""
         )
-        return Observation(**data)
+        obs = Observation(**data)
+        self._last_obs = obs
+        return obs
 
-    def get_score(self) -> float:
-        obs = self.observe()
+    @staticmethod
+    def compute_score(obs: Observation) -> float:
         return obs.floors * 100 + obs.rooms * 10 + obs.kills + obs.time * 0.1
 
+    def get_score(self) -> float:
+        obs = self._last_obs if self._last_obs is not None else self.observe()
+        return self.compute_score(obs)
+
     def is_done(self) -> bool:
-        return self.observe().state in {"gameover", "victory"}
+        obs = self._last_obs if self._last_obs is not None else self.observe()
+        return obs.state in TERMINAL_STATES
 
     def _hold_keys(self, keys: list[str], seconds: float) -> None:
         page = self._require_page()
