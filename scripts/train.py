@@ -213,10 +213,16 @@ def main() -> None:
 
     best_mean = float("-inf")
     start_episode = 1
-    if args.resume and args.latest_path.exists():
+    if args.resume and not args.latest_path.exists():
+        raise FileNotFoundError(
+            f"Cannot resume: checkpoint not found at {args.latest_path}. "
+            "Pass --latest-path to an existing checkpoint or start without --resume."
+        )
+
+    if args.resume:
         agent = QLearningAgent.load(args.latest_path, seed=args.seed)
         data = json.loads(args.latest_path.read_text(encoding="utf-8"))
-        best_mean = data.get("best_mean", float("-inf"))
+        best_mean = data.get("best_mean", data.get("best_eval_score", float("-inf")))
         start_episode = agent.episodes_trained + 1
         print(f"resuming at episode {start_episode} (epsilon={agent.epsilon:.3f})", flush=True)
     else:

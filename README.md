@@ -8,6 +8,30 @@ Lien : https://kraich.itch.io/eclipse-of-souls
 
 Type : roguelite action twin-stick jouable dans le navigateur via itch.io.
 
+## Installation
+
+Le projet utilise Python et Playwright pour piloter Chromium.
+
+```bash
+python -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m playwright install chromium
+```
+
+Sous Windows PowerShell :
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+.\.venv\Scripts\python -m playwright install chromium
+```
+
+Verification rapide sans ouvrir de navigateur visible :
+
+```bash
+python scripts/check_env.py
+```
+
 ## Validation initiale
 
 Le jeu se lance correctement depuis la page itch.io avec le bouton `Run game`.
@@ -186,7 +210,7 @@ Donnees : `reports/random_baseline.csv`.
 Algo retenu : **Q-learning tabulaire sur etat discretise**. Pourquoi celui-la
 pour ce jeu-la : l'environnement tourne en temps reel dans un navigateur
 (~4-5 steps par seconde, pas de GPU), donc le budget total d'apprentissage est
-d'environ 30 000 steps — le deep RL est hors budget d'echantillons. Les
+d'environ 30 000 steps - le deep RL est hors budget d'echantillons. Les
 observations structurees se discretisent naturellement, et une Q-table se
 sauvegarde en JSON de quelques dizaines de Ko, rechargeable trivialement et
 inspectable a l'oeil nu.
@@ -209,7 +233,7 @@ Quatre mecanismes completent le Q-learning de base :
   de deleguer un coup a l'heuristique ; la Q-table apprend OU deleguer et ou
   jouer mieux qu'elle. Le plancher de performance devient l'heuristique, le
   plafond la depasse localement. En evaluation, seule la Q-table decide (y
-  compris de deleguer) — c'est bien une politique apprise.
+  compris de deleguer) - c'est bien une politique apprise.
 - **Shaping de porte** (entrainement seulement) : se rapprocher de la sortie
   d'une salle vide donne un petit signal continu (~+0.15/step) qui mene au
   +10/salle, trop rare pour etre decouvert seul. Le score de comparaison ne
@@ -239,7 +263,7 @@ scores dans `reports/training_scores.csv` (une ligne par episode, train et
 eval, 48 points d'evaluation).
 
 - Meilleur agent (eval@975) : score moyen **15.757**, soit **8.6x la baseline
-  aleatoire (1.836)** — dans la fourchette de l'heuristique de reference.
+  aleatoire (1.836)** - dans la fourchette de l'heuristique de reference.
 - Progression du record au fil des evals : 6.74 (ep. 25) -> 10.64 (ep. 100)
   -> 11.66 (ep. 250) -> 12.05 (ep. 450) -> 14.98 (ep. 575) -> 15.20 (ep. 750)
   -> **15.76 (ep. 975)**. Sur la seconde moitie du run, la majorite des evals
@@ -275,7 +299,7 @@ echec observe et mesure :
    Allers-retours infinis entre salles nettoyees. Correctif : cibler par BFS la
    porte qui mene a la salle non visitee la plus proche.
 3. **V3 colle aux murs** : la porte etait encodee par son mur (haut/bas/...),
-   pas par sa direction relative — l'agent pressait "haut" sans s'aligner avec
+   pas par sa direction relative - l'agent pressait "haut" sans s'aligner avec
    l'ouverture et se coincait contre le mur. Correctif : direction relative en
    8 secteurs (s'aligner d'abord, traverser ensuite).
 4. **Politique deterministe qui se fige** : en jeu greedy pur, un obstacle
