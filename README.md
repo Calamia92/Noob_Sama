@@ -225,29 +225,30 @@ decroissant vers 0.05 en fin de run (fige les acquis, supprime l'oscillation
 post-pic), gamma 0.97 (horizon ~33 steps, un trajet vers une porte), epsilon
 1.0 -> 0.10 atteint a 70 % du run, penalite HP 2.0.
 
-Commande du run complet (400 episodes, puis prolongation par reprise) :
+Commande du run complet (400 episodes, puis prolongations par reprise) :
 
 ```bash
 python scripts/train.py --episodes 400 --max-steps 100 --seed 42 --gamma 0.97 --epsilon-min 0.1 --guide-ratio 0.6 --door-shaping 0.005
-python scripts/train.py --resume --episodes 800 --max-steps 100 --seed 42 --gamma 0.97 --epsilon-min 0.1 --guide-ratio 0.6 --door-shaping 0.005
+python scripts/train.py --resume --episodes 1200 --max-steps 100 --seed 42 --gamma 0.97 --epsilon-min 0.1 --guide-ratio 0.6 --door-shaping 0.005
 ```
 
 ## Resultats de l'entrainement
 
-800 episodes x 100 steps au total (~4 h, en deux runs chaines par `--resume`),
+1 200 episodes x 100 steps au total (~6 h, en runs chaines par `--resume`),
 scores dans `reports/training_scores.csv` (une ligne par episode, train et
-eval, 32 points d'evaluation).
+eval, 48 points d'evaluation).
 
-- Meilleur agent (eval@750) : score moyen **15.198**, soit **8.3x la baseline
+- Meilleur agent (eval@975) : score moyen **15.757**, soit **8.6x la baseline
   aleatoire (1.836)** — dans la fourchette de l'heuristique de reference.
 - Progression du record au fil des evals : 6.74 (ep. 25) -> 10.64 (ep. 100)
-  -> 11.66 (ep. 250) -> 12.05 (ep. 450) -> 14.98 (ep. 575) -> **15.20 (ep. 750)**.
-  Sur la seconde moitie du run, la majorite des evals depassent 10.
-- Pendant l'entrainement : 2 132 kills et 408 salles terminees en 800 episodes
-  (l'aleatoire : 0 kill, 0 salle en 20 parties).
-- En demo longue (300 steps par partie), l'agent tourne autour de 15-22 points
-  avec salle nettoyee et 3-8 kills par partie.
-- Le meilleur agent est conserve dans `models/best_agent.json` (126 etats,
+  -> 11.66 (ep. 250) -> 12.05 (ep. 450) -> 14.98 (ep. 575) -> 15.20 (ep. 750)
+  -> **15.76 (ep. 975)**. Sur la seconde moitie du run, la majorite des evals
+  depassent 10.
+- Pendant l'entrainement : 3 331 kills et 667 salles terminees en 1 200
+  episodes (l'aleatoire : 0 kill, 0 salle en 20 parties).
+- En demo longue (300 steps par partie), l'agent tourne autour de 15-30 points
+  avec 1-2 salles nettoyees et 3-8 kills par partie.
+- Le meilleur agent est conserve dans `models/best_agent.json` (128 etats,
   16 actions, ~60 Ko), rechargement verifie depuis un script neuf.
 
 ## Demo de l'agent entraine
