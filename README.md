@@ -304,8 +304,9 @@ C'est la commande a utiliser pour la video de demonstration.
 
 ## Essais et difficultes (pour le carnet d'essais)
 
-L'agent final est le resultat de cinq iterations, chacune declenchee par un
-echec observe et mesure :
+Le carnet complet est disponible dans `docs/carnet_essais.md`. L'agent final est
+le resultat de plusieurs iterations, chacune declenchee par un echec observe et
+mesure :
 
 1. **V1 aveugle aux portes** : l'etat n'encodait pas la direction de la sortie.
    En 50 episodes, zero salle terminee, plafond d'eval a 2.29 : dans une salle
@@ -328,6 +329,13 @@ echec observe et mesure :
    0.25 -> 0.05 + meta-action de delegation (plancher heuristique). Resultat :
    plancher d'eval a ~6 au lieu de ~2, et un record qui monte de 10.64 a 15.20
    au fil des 800 episodes au lieu de s'eroder.
+6. **Controle bas niveau enrichi** : les tirs en mouvement, tirs diagonaux et
+   dashs directionnels ameliorent le comportement visuel, mais agrandissent trop
+   l'espace si la Q-table doit tout apprendre directement.
+7. **Intentions tactiques** : l'espace d'apprentissage est compacte en intentions
+   (`fight`, `kite`, `exit`, `loot`, etc.) puis resolu en actions clavier. Cette
+   iteration donne un record ponctuel a 18.663, mais confirme aussi que les
+   combats restent la principale source de runs faibles.
 
 Autres lecons : la penalite HP (-2/HP) peut rendre l'agent "froussard" apres
 une serie de morts (observe puis resorbe avec plus d'episodes) ; les evals a
