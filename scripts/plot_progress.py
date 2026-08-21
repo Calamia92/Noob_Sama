@@ -12,7 +12,6 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_INPUTS = [
     ROOT / "reports" / "training_scores.csv",
     ROOT / "reports" / "training_scores_resume.csv",
-    ROOT / "reports" / "training_watch.csv",
 ]
 DEFAULT_BASELINE = ROOT / "reports" / "random_baseline.csv"
 DEFAULT_OUTPUT = ROOT / "reports" / "progression_curve.svg"

@@ -300,10 +300,12 @@ eval, 48 points d'evaluation).
 Mise a jour finale apres observation visuelle et ameliorations du controle bas
 niveau :
 
-- Meilleur checkpoint conserve : `models/best_agent.json`, record ponctuel
-  `eval@1305` a **18.663**.
+- Meilleur checkpoint conserve : `models/best_agent.json`. Un record ponctuel
+  `eval@1305` a **18.663** a ete observe pendant les essais, mais il ne doit
+  pas etre lu comme la performance moyenne stable.
 - Evaluation finale robuste sur 20 episodes x 100 steps :
-  score moyen **8.973**, minimum **2.403**, maximum **15.379**.
+  score moyen **8.973**, minimum **2.403**, maximum **15.379**
+  (`reports/final_eval.csv`).
 - Par rapport a la baseline aleatoire **1.836**, ce score moyen final reste
   environ **4.9x meilleur**.
 - Les runs reussis terminent generalement 1 salle avec 3-4 kills ; les runs
@@ -370,10 +372,11 @@ mesure :
 6. **Controle bas niveau enrichi** : les tirs en mouvement, tirs diagonaux et
    dashs directionnels ameliorent le comportement visuel, mais agrandissent trop
    l'espace si la Q-table doit tout apprendre directement.
-7. **Intentions tactiques** : l'espace d'apprentissage est compacte en intentions
-   (`fight`, `kite`, `exit`, `loot`, etc.) puis resolu en actions clavier. Cette
-   iteration donne un record ponctuel a 18.663, mais confirme aussi que les
-   combats restent la principale source de runs faibles.
+7. **Intentions tactiques** : l'espace d'apprentissage a ete compacte en
+   intentions (`fight`, `kite`, `exit`, `loot`, etc.) puis resolu en actions
+   clavier. Les tests restent instables apres migration de l'ancien modele ; la
+   version retenue est donc le Q-learning 16 actions avec controle bas niveau
+   enrichi et garde-fous heuristiques.
 
 Autres lecons : la penalite HP (-2/HP) peut rendre l'agent "froussard" apres
 une serie de morts (observe puis resorbe avec plus d'episodes) ; les evals a

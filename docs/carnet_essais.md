@@ -22,7 +22,7 @@ score moyen 1.836, 0 kill et 0 salle terminee.
 | V5 | Alpha constant | Evals instables apres les pics | Decroissance alpha 0.25 -> 0.05 |
 | V6 | Delegation heuristique | Plancher de perf plus stable, record eval 15.757 a ep. 975 | Conserver `heuristic` comme meta-action |
 | V7 | Actions bas niveau enrichies | Plus de controle, mais espace d'action trop large si tout est appris directement | Garder les actions riches pour le controle heuristique |
-| V8 | Intentions tactiques | Tests plus lisibles, meilleurs garde-fous, record ponctuel 18.663 | Garder la version pratique Q-learning + garde-fous |
+| V8 | Intentions tactiques | Tests plus lisibles, mais les evals intent restent instables | Garder la version pratique Q-learning + garde-fous |
 
 ## Details des essais
 
@@ -113,17 +113,23 @@ espace principal d'apprentissage.
 
 ### V8 - Intentions tactiques
 
-Derniere iteration : l'espace d'apprentissage est passe a des intentions
+Derniere iteration experimentee : l'espace d'apprentissage est passe a des intentions
 compactes (`fight`, `kite`, `dash_away`, `exit`, `loot`, `interact`, `wait`,
 `heuristic`) resolues ensuite en actions clavier.
 
-Resultat observe : record ponctuel eval@1305 a 18.663. L'evaluation finale
-annoncee dans le README reste plus basse mais plus representative : moyenne
-8.973 sur 20 episodes, avec des runs faibles surtout dus aux combats ou l'agent
-perd trop de vie.
+Resultat observe : les episodes d'entrainement peuvent etre bons, mais les
+evaluations greedy restent instables apres migration de l'ancien modele. Cette
+piste n'est donc pas retenue comme modele final.
 
-Decision : presenter la version finale comme un agent Q-learning tabulaire avec
-controle bas niveau heuristique et garde-fous de demo.
+Le record ponctuel `eval@1305` a 18.663 vient de la version pratique precedente :
+modele Q-learning 16 actions, garde-fous heuristiques en evaluation/demo, et
+controle bas niveau enrichi. L'evaluation finale annoncee dans le README reste
+plus basse mais plus representative : moyenne 8.973 sur 20 episodes, avec des
+runs faibles surtout dus aux combats ou l'agent perd trop de vie.
+
+Decision : presenter la version finale comme un agent Q-learning tabulaire 16
+actions avec controle bas niveau heuristique et garde-fous de demo, et garder
+les intentions tactiques comme piste non retenue faute de stabilite.
 
 ## Limites connues
 
@@ -133,7 +139,7 @@ controle bas niveau heuristique et garde-fous de demo.
   niveau ; le code sait le rejouer, mais la narration doit rester claire sur ce
   point.
 - Les combats restent la principale source de runs faibles.
-- Une evaluation finale devrait etre conservee dans un CSV dedie pour relier
+- L'evaluation finale est conservee dans `reports/final_eval.csv` pour relier
   directement les chiffres finaux au fichier source.
 
 ## Pistes avec plus de temps
