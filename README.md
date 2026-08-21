@@ -205,6 +205,20 @@ le meme nombre d'episodes et le meme budget de steps.
 
 Donnees : `reports/random_baseline.csv`.
 
+## Courbe de progression
+
+La courbe de progression est generee depuis les CSV de `reports/` sans
+dependance graphique externe :
+
+```bash
+python scripts/plot_progress.py
+```
+
+Sortie : `reports/progression_curve.svg`.
+
+La courbe affiche la moyenne mobile des scores d'entrainement, les evaluations
+periodiques, le meilleur score d'evaluation conserve et la baseline aleatoire.
+
 ## Methode d'apprentissage
 
 Algo retenu : **Q-learning tabulaire sur etat discretise**. Pourquoi celui-la
