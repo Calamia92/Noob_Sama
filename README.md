@@ -8,6 +8,12 @@ Lien : https://kraich.itch.io/eclipse-of-souls
 
 Type : roguelite action twin-stick jouable dans le navigateur via itch.io.
 
+Raison du choix : le jeu tourne directement dans Chromium, expose un score de
+run lisible rapidement et propose des objectifs simples a mesurer (survivre,
+tuer des ennemis, terminer des salles). Il rentre donc dans la contrainte du
+projet : obtenir un environnement jouable et une baseline en moins de 30
+minutes, sans entrainement GPU lourd.
+
 ## Installation
 
 Le projet utilise Python et Playwright pour piloter Chromium.
@@ -218,6 +224,8 @@ Sortie : `reports/progression_curve.svg`.
 
 La courbe affiche la moyenne mobile des scores d'entrainement, les evaluations
 periodiques, le meilleur score d'evaluation conserve et la baseline aleatoire.
+Elle sert de support visuel pour comparer l'agent aleatoire et l'agent entraine
+pendant la restitution.
 
 ## Methode d'apprentissage
 
@@ -315,6 +323,22 @@ python scripts/watch_agent.py --episodes 3
 ```
 
 C'est la commande a utiliser pour la video de demonstration.
+
+## Video de restitution
+
+Lien video public : a ajouter apres upload.
+
+Plan conseille pour la video de 10 a 15 minutes :
+
+1. Presenter le jeu choisi et pourquoi il respecte les contraintes du projet.
+2. Montrer la baseline aleatoire et son score moyen de 1.836.
+3. Expliquer les observations, les actions et la fonction de recompense.
+4. Expliquer le choix du Q-learning tabulaire et les garde-fous heuristiques.
+5. Montrer la courbe `reports/progression_curve.svg` et comparer random vs
+   agent entraine.
+6. Montrer une demo avec `python scripts/watch_agent.py --episodes 3`.
+7. Presenter un echec instructif depuis `docs/carnet_essais.md`.
+8. Conclure sur les limites et ce qui serait fait avec plus de temps.
 
 ## Essais et difficultes (pour le carnet d'essais)
 
