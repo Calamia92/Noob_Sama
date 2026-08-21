@@ -6,14 +6,24 @@ import random
 from pathlib import Path
 from typing import Any
 
-from src.eos_env import Observation, RANDOM_BASELINE_ACTIONS
+from src.eos_env import ACTIONS, Observation, RANDOM_BASELINE_ACTIONS
 
 
-CONCRETE_ACTIONS = [*RANDOM_BASELINE_ACTIONS, "interact"]
+CONCRETE_ACTIONS = list(ACTIONS)
 
-# The extra meta-action delegates one move to the rule-based policy; the
-# Q-table then learns WHERE delegating beats its own moves.
-TRAIN_ACTIONS = [*CONCRETE_ACTIONS, "heuristic"]
+# The Q-table learns compact tactical intentions. A low-level controller maps
+# them to the rich keyboard action space: diagonal shots, strafing, dashes, etc.
+TRAIN_ACTIONS = [
+    "heuristic",
+    "fight",
+    "kite",
+    "dash_away",
+    "exit",
+    "loot",
+    "interact",
+    "wait",
+]
+SAFE_EXPLORATION_ACTIONS = list(TRAIN_ACTIONS)
 
 SECTORS = ["e", "ne", "n", "nw", "w", "sw", "s", "se"]
 
@@ -90,8 +100,7 @@ def discretize(obs: Observation) -> str:
 
 
 def project_action(action: str, actions: list[str], rng: random.Random) -> str:
-    """Map a rich policy action (diagonals, free move+shoot combos) onto the
-    training action set by picking one of its in-set components."""
+    """Map a rich policy action onto the available training action set."""
     if action in actions:
         return action
     if "_shoot_" in action:
@@ -152,6 +161,23 @@ class QLearningAgent:
         # Alpha decays with it so late experience refines values instead of
         # overwriting them (the source of the post-peak oscillation).
         self.alpha = max(self.alpha_min, self.alpha * self.alpha_decay)
+
+    def set_actions(self, actions: list[str]) -> None:
+        """Expand/reorder the action space while preserving known Q-values."""
+        if self.actions == actions:
+            return
+
+        old_actions = self.actions
+        old_index = {action: index for index, action in enumerate(old_actions)}
+        new_q: dict[str, list[float]] = {}
+        for state, values in self.q.items():
+            migrated = [0.0] * len(actions)
+            for index, action in enumerate(actions):
+                if action in old_index:
+                    migrated[index] = values[old_index[action]]
+            new_q[state] = migrated
+        self.actions = list(actions)
+        self.q = new_q
 
     def save(self, path: Path | str, *, extra: dict[str, Any] | None = None) -> None:
         payload: dict[str, Any] = {

@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT))
 
 from src.agents import CONCRETE_ACTIONS, QLearningAgent, discretize, project_action
 from src.eos_env import EclipseEnv
-from src.policies import heuristic_action
+from src.policies import heuristic_action, resolve_intent, should_delegate_action
 
 
 DEFAULT_AGENT = ROOT / "models" / "best_agent.json"
@@ -54,19 +54,24 @@ def main() -> None:
 
             while not done and steps < args.max_steps:
                 action = agent.act(discretize(obs), greedy=True)
+                if should_delegate_action(obs, action):
+                    action = "heuristic"
                 # A deterministic greedy policy can pin itself against an
-                # obstacle the state does not encode; one random move plays
-                # the unsticking role exploration has during training.
+                # obstacle the state does not encode; delegate that recovery
+                # to the heuristic so it still aims for useful exits/pickups.
                 trail.append((obs.x, obs.y))
                 if len(trail) > 8:
                     trail.pop(0)
                     spread_x = max(p[0] for p in trail) - min(p[0] for p in trail)
                     spread_y = max(p[1] for p in trail) - min(p[1] for p in trail)
                     if spread_x < 12 and spread_y < 12 and obs.enemy_count == 0:
-                        action = rng.choice(CONCRETE_ACTIONS)
+                        action = project_action(heuristic_action(obs), CONCRETE_ACTIONS, rng)
                         trail.clear()
                 if action == "heuristic":
-                    action = project_action(heuristic_action(obs), CONCRETE_ACTIONS, rng)
+                    action = resolve_intent(obs, action)
+                else:
+                    action = resolve_intent(obs, action)
+                action = project_action(action, CONCRETE_ACTIONS, rng)
                 obs, _reward, done, _info = env.step(action)
                 steps += 1
                 if not args.headless:

@@ -12,6 +12,10 @@ RARITY_RANK = {
 }
 
 RISKY_ROOM_TYPES = {"altar", "defi", "scelle", "gambler"}
+COMBAT_PICKUP_RANGE = 250.0
+ROOM_WIDTH = 1280.0
+ROOM_HEIGHT = 720.0
+WALL_MARGIN = 120.0
 
 
 def heuristic_action(obs: Observation) -> str:
@@ -19,7 +23,150 @@ def heuristic_action(obs: Observation) -> str:
     if obs.state != "play":
         return "noop"
 
-    if obs.near_choice and obs.near_choice["distance"] <= 58:
+    if (
+        obs.near_choice
+        and obs.near_choice["distance"] <= 58
+        and obs.room_type not in RISKY_ROOM_TYPES
+    ):
+        return "interact"
+
+    shop = obs.nearest_shop_item
+    if shop and obs.room_type not in RISKY_ROOM_TYPES and _shop_item_is_useful(obs, shop):
+        if shop["distance"] <= 58:
+            return "interact"
+        return _move_towards(obs, shop)
+
+    enemy = obs.nearest_enemy
+    if enemy:
+        pickup = _best_pickup(obs)
+        if pickup:
+            return _move_towards(obs, pickup)
+        return _combat_action(obs, enemy)
+
+    if obs.portal_active and obs.portal:
+        if obs.portal["distance"] <= 65:
+            return "interact"
+        return _move_towards(obs, obs.portal)
+
+    exit_door = obs.target_door or obs.nearest_door
+    if obs.doors_open and exit_door:
+        return _move_towards(obs, exit_door)
+
+    pickup = _best_pickup(obs)
+    if pickup:
+        if pickup["type"] == "item" and pickup.get("choice") and pickup["distance"] <= 55:
+            return "interact"
+        if pickup["distance"] > 20:
+            return _move_towards(obs, pickup)
+
+    return "noop"
+
+
+def should_delegate_action(obs: Observation, action: str) -> bool:
+    if obs.state != "play":
+        return False
+
+    if obs.enemy_count == 0 and (obs.doors_open or obs.portal_active):
+        return True
+
+    if obs.nearest_enemy and (obs.enemy_count >= 3 or obs.hp * 2 <= obs.max_hp):
+        return True
+
+    if obs.nearest_enemy and obs.enemy_count >= 2 and _is_static_combat_action(action):
+        return True
+
+    return False
+
+
+def resolve_intent(obs: Observation, intent: str) -> str:
+    if intent in {
+        "noop",
+        "up",
+        "down",
+        "left",
+        "right",
+        "up_left",
+        "up_right",
+        "down_left",
+        "down_right",
+        "shoot_up",
+        "shoot_down",
+        "shoot_left",
+        "shoot_right",
+        "shoot_up_left",
+        "shoot_up_right",
+        "shoot_down_left",
+        "shoot_down_right",
+        "dash",
+        "dash_up",
+        "dash_down",
+        "dash_left",
+        "dash_right",
+        "dash_up_left",
+        "dash_up_right",
+        "dash_down_left",
+        "dash_down_right",
+    } or "_shoot_" in intent:
+        return intent
+
+    if intent == "heuristic":
+        return heuristic_action(obs)
+    if intent == "fight":
+        return _fight_intent(obs)
+    if intent == "kite":
+        return _kite_intent(obs)
+    if intent == "dash_away":
+        return _dash_away_intent(obs)
+    if intent == "exit":
+        return _exit_intent(obs)
+    if intent == "loot":
+        return _loot_intent(obs)
+    if intent == "interact":
+        return "interact"
+    if intent == "wait":
+        return "noop"
+    return heuristic_action(obs)
+
+
+def _is_static_combat_action(action: str) -> bool:
+    return action == "noop" or action == "dash" or action.startswith("shoot_")
+
+
+def _fight_intent(obs: Observation) -> str:
+    enemy = obs.nearest_enemy
+    if enemy:
+        return _combine(_defensive_move(obs, enemy), _shoot_towards(obs, enemy))
+    return _exit_intent(obs)
+
+
+def _kite_intent(obs: Observation) -> str:
+    enemy = obs.nearest_enemy
+    if enemy:
+        return _combine(_move_away(obs, enemy), _shoot_towards(obs, enemy))
+    return _exit_intent(obs)
+
+
+def _dash_away_intent(obs: Observation) -> str:
+    enemy = obs.nearest_enemy
+    if enemy:
+        return _dash_away(obs, enemy)
+    return _exit_intent(obs)
+
+
+def _exit_intent(obs: Observation) -> str:
+    if obs.portal_active and obs.portal:
+        if obs.portal["distance"] <= 65:
+            return "interact"
+        return _move_towards(obs, obs.portal)
+
+    door = obs.target_door or obs.nearest_door
+    if obs.doors_open and door:
+        return _move_towards(obs, door)
+    return heuristic_action(obs)
+
+
+def _loot_intent(obs: Observation) -> str:
+    if obs.near_choice and obs.near_choice["distance"] <= 58 and obs.room_type not in RISKY_ROOM_TYPES:
         return "interact"
 
     shop = obs.nearest_shop_item
@@ -32,28 +179,8 @@ def heuristic_action(obs: Observation) -> str:
     if pickup:
         if pickup["type"] == "item" and pickup.get("choice") and pickup["distance"] <= 55:
             return "interact"
-        if pickup["distance"] > 20:
-            return _move_towards(obs, pickup)
-
-    if obs.portal_active and obs.portal:
-        if obs.portal["distance"] <= 65:
-            return "interact"
-        return _move_towards(obs, obs.portal)
-
-    exit_door = obs.target_door or obs.nearest_door
-    if obs.doors_open and exit_door:
-        return _move_towards(obs, exit_door)
-
-    enemy = obs.nearest_enemy
-    if enemy:
-        shot = _shoot_towards(obs, enemy)
-        if enemy["distance"] < 170:
-            return _combine(_move_away(obs, enemy), shot)
-        if enemy["distance"] > 430:
-            return _combine(_move_towards(obs, enemy), shot)
-        return shot
-
-    return "noop"
+        return _move_towards(obs, pickup)
+    return _exit_intent(obs)
 
 
 def _best_pickup(obs: Observation) -> dict | None:
@@ -63,6 +190,11 @@ def _best_pickup(obs: Observation) -> dict | None:
     candidates = []
     for pickup in obs.pickups:
         kind = pickup.get("type")
+        if obs.enemy_count > 0:
+            if kind not in {"heart", "heartHalf"} or obs.hp_missing <= 0:
+                continue
+            if pickup.get("distance", 9999) > COMBAT_PICKUP_RANGE:
+                continue
         if kind in {"heart", "heartHalf"} and obs.hp_missing <= 0:
             continue
         priority = {
@@ -99,9 +231,62 @@ def _move_away(obs: Observation, target: dict) -> str:
 def _shoot_towards(obs: Observation, target: dict) -> str:
     dx = target["x"] - obs.x
     dy = target["y"] - obs.y
+    if abs(dx) > 45 and abs(dy) > 45:
+        vertical = "down" if dy > 0 else "up"
+        horizontal = "right" if dx > 0 else "left"
+        return f"shoot_{vertical}_{horizontal}"
     if abs(dx) > abs(dy):
         return "shoot_right" if dx > 0 else "shoot_left"
     return "shoot_down" if dy > 0 else "shoot_up"
+
+
+def _combat_action(obs: Observation, enemy: dict) -> str:
+    shot = _shoot_towards(obs, enemy)
+    distance = enemy.get("distance", 9999)
+
+    if distance < 190:
+        if distance < 105:
+            return _dash_away(obs, enemy)
+        return _combine(_move_away(obs, enemy), shot)
+
+    hp_low = obs.hp * 2 <= obs.max_hp
+    crowded = obs.enemy_count >= 2
+    if hp_low or crowded or distance < 330:
+        return _combine(_defensive_move(obs, enemy), shot)
+
+    if distance > 470:
+        return _combine(_move_towards(obs, enemy), shot)
+
+    return shot
+
+
+def _dash_away(obs: Observation, target: dict) -> str:
+    move = _move_away(obs, target)
+    return "dash" if move == "noop" else "dash_" + move
+
+
+def _defensive_move(obs: Observation, enemy: dict) -> str:
+    wall_escape = _move_towards_center_if_near_wall(obs)
+    if wall_escape != "noop":
+        return wall_escape
+
+    dx = enemy["x"] - obs.x
+    dy = enemy["y"] - obs.y
+    if abs(dx) > abs(dy):
+        return "up" if obs.y > ROOM_HEIGHT / 2 else "down"
+    return "left" if obs.x > ROOM_WIDTH / 2 else "right"
+
+
+def _move_towards_center_if_near_wall(obs: Observation) -> str:
+    if obs.x < WALL_MARGIN:
+        return "right"
+    if obs.x > ROOM_WIDTH - WALL_MARGIN:
+        return "left"
+    if obs.y < WALL_MARGIN:
+        return "down"
+    if obs.y > ROOM_HEIGHT - WALL_MARGIN:
+        return "up"
+    return "noop"
 
 
 def _combine(move: str, shoot: str) -> str:

@@ -275,6 +275,22 @@ eval, 48 points d'evaluation).
 - Le meilleur agent est conserve dans `models/best_agent.json` (128 etats,
   16 actions, ~60 Ko), rechargement verifie depuis un script neuf.
 
+Mise a jour finale apres observation visuelle et ameliorations du controle bas
+niveau :
+
+- Meilleur checkpoint conserve : `models/best_agent.json`, record ponctuel
+  `eval@1305` a **18.663**.
+- Evaluation finale robuste sur 20 episodes x 100 steps :
+  score moyen **8.973**, minimum **2.403**, maximum **15.379**.
+- Par rapport a la baseline aleatoire **1.836**, ce score moyen final reste
+  environ **4.9x meilleur**.
+- Les runs reussis terminent generalement 1 salle avec 3-4 kills ; les runs
+  faibles viennent surtout de combats ou l'agent prend trop de degats.
+- Les tirs en mouvement, tirs diagonaux et dashs directionnels ont ete ajoutes
+  au controle bas niveau. Les apprendre directement dans la Q-table agrandit
+  trop l'espace d'actions ; la meilleure version pratique reste donc le modele
+  Q-learning sauvegarde avec garde-fous heuristiques.
+
 ## Demo de l'agent entraine
 
 Le script recharge `models/best_agent.json` depuis un script neuf, sans

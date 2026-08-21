@@ -14,9 +14,16 @@ sys.path.insert(0, str(ROOT))
 
 from playwright.sync_api import Error as PlaywrightError
 
-from src.agents import CONCRETE_ACTIONS, TRAIN_ACTIONS, QLearningAgent, discretize, project_action
+from src.agents import (
+    CONCRETE_ACTIONS,
+    SAFE_EXPLORATION_ACTIONS,
+    TRAIN_ACTIONS,
+    QLearningAgent,
+    discretize,
+    project_action,
+)
 from src.eos_env import EclipseEnv, Observation
-from src.policies import heuristic_action
+from src.policies import heuristic_action, resolve_intent, should_delegate_action
 
 
 DEFAULT_OUTPUT = ROOT / "reports" / "training_scores.csv"
@@ -44,6 +51,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--episodes", type=int, default=200)
     parser.add_argument("--max-steps", type=int, default=100)
     parser.add_argument("--step-seconds", type=float, default=0.15)
+    parser.add_argument("--watch", action="store_true", help="Open a visible browser during training.")
+    parser.add_argument(
+        "--slow-mo",
+        type=int,
+        default=50,
+        help="Playwright slow_mo in milliseconds when --watch is enabled.",
+    )
+    parser.add_argument(
+        "--log-steps",
+        action="store_true",
+        help="Print every action during each episode.",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--alpha", type=float, default=0.25)
     parser.add_argument("--alpha-min", type=float, default=0.05)
@@ -85,10 +104,33 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--eval-every", type=int, default=25)
     parser.add_argument("--eval-episodes", type=int, default=3)
+    parser.add_argument(
+        "--full-random-exploration",
+        action="store_true",
+        help="Explore uniformly over all train actions instead of the curated safe subset.",
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--best-path", type=Path, default=DEFAULT_BEST)
     parser.add_argument("--latest-path", type=Path, default=DEFAULT_LATEST)
     parser.add_argument("--resume", action="store_true", help="Resume from --latest-path.")
+    parser.add_argument(
+        "--resume-epsilon",
+        type=float,
+        default=None,
+        help="Override epsilon after loading a checkpoint.",
+    )
+    parser.add_argument(
+        "--resume-epsilon-min",
+        type=float,
+        default=None,
+        help="Override epsilon_min after loading a checkpoint.",
+    )
+    parser.add_argument(
+        "--resume-alpha",
+        type=float,
+        default=None,
+        help="Override alpha after loading a checkpoint.",
+    )
     return parser.parse_args()
 
 
@@ -127,6 +169,8 @@ def run_episode(
     hp_penalty: float,
     guide_ratio: float = 0.0,
     door_shaping: float = 0.0,
+    log_steps: bool = False,
+    exploration_actions: list[str] | None = None,
 ) -> dict[str, object]:
     started = time.monotonic()
     obs = env.reset()
@@ -140,14 +184,9 @@ def run_episode(
     while not done and steps < max_steps:
         if not greedy and agent.rng.random() < agent.epsilon:
             if guide_ratio > 0 and agent.rng.random() < guide_ratio:
-                # Half the guided moves credit the delegation meta-action,
-                # the other half credit the concrete move itself.
-                if agent.rng.random() < 0.5:
-                    label = "heuristic"
-                else:
-                    label = project_action(heuristic_action(obs), CONCRETE_ACTIONS, agent.rng)
+                label = "heuristic"
             else:
-                label = agent.rng.choice(agent.actions)
+                label = agent.rng.choice(exploration_actions or agent.actions)
         else:
             label = agent.act(state, greedy=True)
 
@@ -158,12 +197,14 @@ def run_episode(
                 spread_x = max(p[0] for p in trail) - min(p[0] for p in trail)
                 spread_y = max(p[1] for p in trail) - min(p[1] for p in trail)
                 if spread_x < 12 and spread_y < 12 and obs.enemy_count == 0:
-                    label = agent.rng.choice(CONCRETE_ACTIONS)
+                    label = project_action(heuristic_action(obs), CONCRETE_ACTIONS, agent.rng)
                     trail.clear()
 
         action = label
-        if action == "heuristic":
-            action = project_action(heuristic_action(obs), CONCRETE_ACTIONS, agent.rng)
+        if should_delegate_action(obs, action):
+            label = "heuristic"
+            action = label
+        action = project_action(resolve_intent(obs, action), CONCRETE_ACTIONS, agent.rng)
 
         previous = obs
         obs, _, done, _ = env.step(action)
@@ -174,6 +215,15 @@ def run_episode(
         state = next_state
         total_reward += reward
         steps += 1
+        if log_steps:
+            print(
+                f"  step={steps:03d} mode={'eval' if greedy else 'train'} "
+                f"label={label} action={action} reward={reward:.3f} "
+                f"score={EclipseEnv.compute_score(obs):.3f} hp={obs.hp} "
+                f"room={obs.room_type} enemies={obs.enemy_count} "
+                f"doors={obs.doors_open}",
+                flush=True,
+            )
 
     return {
         "steps": steps,
@@ -221,9 +271,19 @@ def main() -> None:
 
     if args.resume:
         agent = QLearningAgent.load(args.latest_path, seed=args.seed)
+        if agent.actions != TRAIN_ACTIONS:
+            old_count = len(agent.actions)
+            agent.set_actions(TRAIN_ACTIONS)
+            print(f"migrated action space: {old_count} -> {len(agent.actions)}", flush=True)
         data = json.loads(args.latest_path.read_text(encoding="utf-8"))
         best_mean = data.get("best_mean", data.get("best_eval_score", float("-inf")))
         start_episode = agent.episodes_trained + 1
+        if args.resume_epsilon is not None:
+            agent.epsilon = args.resume_epsilon
+        if args.resume_epsilon_min is not None:
+            agent.epsilon_min = args.resume_epsilon_min
+        if args.resume_alpha is not None:
+            agent.alpha = args.resume_alpha
         print(f"resuming at episode {start_episode} (epsilon={agent.epsilon:.3f})", flush=True)
     else:
         decay = args.epsilon_decay
@@ -264,9 +324,14 @@ def main() -> None:
         )
         csv_file.flush()
 
-    env = EclipseEnv(headless=True, step_seconds=args.step_seconds)
+    env = EclipseEnv(
+        headless=not args.watch,
+        slow_mo=args.slow_mo if args.watch else 0,
+        step_seconds=args.step_seconds,
+    )
     env.start()
     try:
+        exploration_actions = agent.actions if args.full_random_exploration else SAFE_EXPLORATION_ACTIONS
         for episode in range(start_episode, args.episodes + 1):
             row = run_episode_with_retries(
                 env,
@@ -276,6 +341,8 @@ def main() -> None:
                 hp_penalty=args.hp_penalty,
                 guide_ratio=args.guide_ratio,
                 door_shaping=args.door_shaping,
+                log_steps=args.log_steps,
+                exploration_actions=exploration_actions,
             )
             write_row("train", episode, row)
             print(
@@ -297,6 +364,7 @@ def main() -> None:
                         max_steps=args.max_steps,
                         greedy=True,
                         hp_penalty=args.hp_penalty,
+                        log_steps=args.log_steps,
                     )
                     write_row("eval", episode, eval_row)
                     scores.append(float(eval_row["score"]))
