@@ -25,6 +25,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--step-seconds", type=float, default=0.15)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--turbo",
+        action="store_true",
+        help="Synchronous fast-forward stepping (for the long-budget baseline).",
+    )
     return parser.parse_args()
 
 
@@ -36,7 +41,7 @@ def main() -> None:
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
-    with EclipseEnv(headless=True, step_seconds=args.step_seconds) as env:
+    with EclipseEnv(headless=True, step_seconds=args.step_seconds, turbo=args.turbo) as env:
         for episode in range(1, args.episodes + 1):
             obs = env.reset()
             done = False
