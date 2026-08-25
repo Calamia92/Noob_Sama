@@ -143,6 +143,29 @@ def featurize(obs: Observation, previous: Observation | None = None) -> list[flo
     affordable = 1.0 if shop and obs.gold >= shop.get("price", 0) else 0.0
     features.extend(_entity(obs, shop, [affordable]))
 
+    # Spawn window: where enemies are about to appear.
+    spawn = obs.spawning[0] if obs.spawning else None
+    features.extend(
+        [
+            min(len(obs.spawning), 3) / 3.0,
+            1.0 if spawn else 0.0,
+            (spawn["x"] - obs.x) / ROOM_W if spawn else 0.0,
+            (spawn["y"] - obs.y) / ROOM_H if spawn else 0.0,
+        ]
+    )
+
+    # Minimap routing: what kind of room the target door leads to.
+    target_type = obs.target_room_type
+    features.extend(
+        [
+            1.0 if target_type == "treasure" else 0.0,
+            1.0 if target_type == "shop" else 0.0,
+            1.0 if target_type == "miniboss" else 0.0,
+            1.0 if target_type == "boss" else 0.0,
+            min(obs.target_room_hops, 6) / 6.0,
+        ]
+    )
+
     if previous is not None and previous.state == "play":
         travel = ((obs.x - previous.x) ** 2 + (obs.y - previous.y) ** 2) ** 0.5
         speed = min(travel / STEP_TRAVEL, 1.0)
@@ -189,6 +212,9 @@ def _count_features() -> int:
         "enemies": [],
         "shots": [],
         "hazards": [],
+        "spawning": [],
+        "target_room_type": None,
+        "target_room_hops": 0,
     }
     assert {f.name for f in fields(Observation)} == set(dummy_values)
     return len(featurize(Observation(**dummy_values)))

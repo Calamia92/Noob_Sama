@@ -41,6 +41,18 @@ def heuristic_action(obs: Observation) -> str:
     if dodge:
         return dodge
 
+    # Spawn window: enemies are materialising and nothing is shootable
+    # yet — pre-position toward the room centre instead of freezing.
+    if obs.enemy_count == 0 and obs.spawning:
+        dx = ROOM_WIDTH / 2 - obs.x
+        dy = ROOM_HEIGHT / 2 - obs.y
+        nearest_spawn = obs.spawning[0]
+        if nearest_spawn.get("distance", 9999) < 150:
+            dx = obs.x - nearest_spawn["x"]
+            dy = obs.y - nearest_spawn["y"]
+        if abs(dx) > 40 or abs(dy) > 40:
+            return _best_direction(obs, [(dx, dy)])
+
     if (
         obs.near_choice
         and obs.near_choice["distance"] <= 58
@@ -52,7 +64,7 @@ def heuristic_action(obs: Observation) -> str:
     if shop and obs.room_type not in RISKY_ROOM_TYPES and _shop_item_is_useful(obs, shop):
         if shop["distance"] <= 58:
             return "interact"
-        return _move_towards(obs, shop)
+        return _travel(obs, shop)
 
     enemy = obs.nearest_enemy
     if enemy:
@@ -68,16 +80,16 @@ def heuristic_action(obs: Observation) -> str:
         if pickup["type"] == "item" and pickup.get("choice") and pickup["distance"] <= 55:
             return "interact"
         if pickup["distance"] > 20:
-            return _move_towards(obs, pickup)
+            return _travel(obs, pickup)
 
     if obs.portal_active and obs.portal:
         if obs.portal["distance"] <= 65:
             return "interact"
-        return _move_towards(obs, obs.portal)
+        return _travel(obs, obs.portal)
 
     exit_door = obs.target_door or obs.nearest_door
     if obs.doors_open and exit_door:
-        return _move_towards(obs, exit_door)
+        return _travel(obs, exit_door)
 
     return "noop"
 
@@ -244,6 +256,15 @@ def _move_towards(obs: Observation, target: dict) -> str:
     return _move_from_delta(target["x"] - obs.x, target["y"] - obs.y)
 
 
+def _travel(obs: Observation, target: dict) -> str:
+    # Out of combat, dashing toward a distant objective buys game time:
+    # more rooms fit into the same step budget.
+    move = _move_towards(obs, target)
+    if move != "noop" and obs.enemy_count == 0 and target.get("distance", 0) > 260:
+        return "dash_" + move
+    return move
+
+
 def _move_away(obs: Observation, target: dict) -> str:
     return _move_from_delta(obs.x - target["x"], obs.y - target["y"])
 
@@ -307,6 +328,22 @@ def _best_direction(obs: Observation, preferred: list[tuple[float, float]]) -> s
                 value -= 3.0
             elif d < 130:
                 value -= 1.0
+        for shot in obs.shots:
+            vx = shot.get("vx", 0.0)
+            vy = shot.get("vy", 0.0)
+            speed_sq = vx * vx + vy * vy
+            if speed_sq <= 1e-6:
+                continue
+            # Closest pass of the orb's predicted path to the candidate spot.
+            t = ((nx - shot["x"]) * vx + (ny - shot["y"]) * vy) / speed_sq
+            t = min(max(t, 0.0), SHOT_THREAT_HORIZON)
+            d = (
+                (nx - shot["x"] - vx * t) ** 2 + (ny - shot["y"] - vy * t) ** 2
+            ) ** 0.5
+            if d < 40:
+                value -= 2.5
+            elif d < 80:
+                value -= 0.8
         return value
 
     return max(_DIRS, key=lambda name: score(*_DIRS[name]))

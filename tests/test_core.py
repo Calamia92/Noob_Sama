@@ -50,6 +50,9 @@ def obs(**overrides: object) -> Observation:
         enemies=[],
         shots=[],
         hazards=[],
+        spawning=[],
+        target_room_type=None,
+        target_room_hops=0,
     )
     return replace(base, **overrides)
 
@@ -143,6 +146,41 @@ class CoreBehaviorTests(unittest.TestCase):
                 doors_open=True,
                 target_door={"x": 220, "y": 100, "distance": 120, "dir": "right"},
                 pickups=[{"x": 90, "y": 100, "distance": 10, "type": "gold"}],
+            )
+        )
+
+        self.assertEqual(action, "right")
+
+    def test_heuristic_repositions_during_spawn_window(self) -> None:
+        action = heuristic_action(
+            obs(
+                x=120,
+                y=120,
+                spawning=[{"x": 900, "y": 500, "distance": 870}],
+            )
+        )
+
+        self.assertEqual(action, "down_right")
+
+    def test_heuristic_dashes_toward_far_door(self) -> None:
+        action = heuristic_action(
+            obs(
+                x=200,
+                y=360,
+                doors_open=True,
+                target_door={"x": 1280, "y": 360, "distance": 1080, "dir": "right"},
+            )
+        )
+
+        self.assertEqual(action, "dash_right")
+
+    def test_heuristic_walks_toward_near_door(self) -> None:
+        action = heuristic_action(
+            obs(
+                x=1100,
+                y=360,
+                doors_open=True,
+                target_door={"x": 1280, "y": 360, "distance": 180, "dir": "right"},
             )
         )
 

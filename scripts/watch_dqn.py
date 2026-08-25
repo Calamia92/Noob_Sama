@@ -16,7 +16,7 @@ from src.features import featurize
 from src.policies import heuristic_action
 
 
-DEFAULT_AGENT = ROOT / "models" / "dqn_agent.json"
+DEFAULT_AGENT = ROOT / "models" / "bc_agent.json"
 
 
 def parse_args() -> argparse.Namespace:

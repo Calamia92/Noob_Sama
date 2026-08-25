@@ -174,32 +174,62 @@ window.__eosObserve = () => {
         nearestDoor = availableDoors[0] || null;
     }
 
-    // Door leading toward the closest unvisited room (BFS over the
-    // dungeon graph). Prevents ping-ponging between cleared rooms.
+    // Door leading toward the best unvisited room (BFS over the dungeon
+    // graph, i.e. the minimap). Rooms are ranked by type so the run gears
+    // up (treasure, shop) before facing the guardian, which is always
+    // routed last.
     let targetDoor = nearestDoor;
+    let targetRoomType = null;
+    let targetRoomHops = 0;
     if (availableDoors.length && g.dungeon?.nodes && node) {
         const dirs = { up: [0, -1], right: [1, 0], down: [0, 1], left: [-1, 0] };
         const key = (x, y) => x + ',' + y;
         const seen = new Set([key(node.gx, node.gy)]);
-        const queue = [[node.gx, node.gy, null]];
-        let bestDir = null;
+        const queue = [[node.gx, node.gy, null, 0]];
+        const PRIORITY = { treasure: 5, shop: 4, miniboss: 2, boss: 1 };
+        let best = null;
         while (queue.length) {
-            const [cx, cy, firstDir] = queue.shift();
+            const [cx, cy, firstDir, hops] = queue.shift();
             const cur = g.dungeon.nodes.get(key(cx, cy));
             if (!cur) continue;
-            if (!cur.visited && firstDir) { bestDir = firstDir; break; }
+            if (!cur.visited && firstDir) {
+                const prio = PRIORITY[cur.type] ?? 3;
+                const score = prio * 100 - hops;
+                if (!best || score > best.score) {
+                    best = { score, firstDir, type: cur.type || null, hops };
+                }
+                continue;
+            }
             for (const [dir, [dx, dy]] of Object.entries(dirs)) {
                 if (!cur.doors || !cur.doors[dir]) continue;
                 const nk = key(cx + dx, cy + dy);
                 if (seen.has(nk)) continue;
                 seen.add(nk);
-                queue.push([cx + dx, cy + dy, firstDir || dir]);
+                queue.push([cx + dx, cy + dy, firstDir || dir, hops + 1]);
             }
         }
-        if (bestDir) {
-            targetDoor = availableDoors.find((d) => d.dir === bestDir) || nearestDoor;
+        if (best) {
+            targetDoor = availableDoors.find((d) => d.dir === best.firstDir) || nearestDoor;
+            targetRoomType = best.type;
+            targetRoomHops = best.hops;
         }
     }
+
+    // Enemies still materialising (spawn window): invisible to the active
+    // list, yet the right moment to pre-position instead of freezing.
+    const spawningEnemies = [];
+    if (enemies) {
+        for (let i = 0; i < enemies.count; i++) {
+            const e = enemies.items[i];
+            if (!e || e.hp <= 0 || !(e.spawnTimer > 0)) continue;
+            spawningEnemies.push({
+                x: e.x ?? 0,
+                y: e.y ?? 0,
+                distance: dist(e.x ?? 0, e.y ?? 0),
+            });
+        }
+    }
+    spawningEnemies.sort((a, b) => a.distance - b.distance);
 
     let nearestShopItem = null;
     if (node?.type === 'shop' && node.shopStock && room?.shopSlots) {
@@ -308,6 +338,9 @@ window.__eosObserve = () => {
         enemies: activeEnemies.slice(0, 3),
         shots: activeShots.slice(0, 6),
         hazards: activeHazards.slice(0, 6),
+        spawning: spawningEnemies.slice(0, 3),
+        target_room_type: targetRoomType,
+        target_room_hops: targetRoomHops,
     };
 };
 """
@@ -359,6 +392,9 @@ class Observation:
     enemies: list[dict[str, Any]]
     shots: list[dict[str, Any]]
     hazards: list[dict[str, Any]]
+    spawning: list[dict[str, Any]]
+    target_room_type: str | None
+    target_room_hops: int
 
 
 class EclipseEnv:
