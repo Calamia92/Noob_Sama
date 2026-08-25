@@ -332,10 +332,20 @@ La deuxieme phase du projet (details et echecs mesures dans
   5 iterations correctives. Resultat negatif documente : 6.66 en eval pure,
   sous la baseline aleatoire - le RL pur n'apprend pas le combat fin avec ce
   budget d'echantillons (`reports/final_eval_dqn.csv`).
-- **Agent retenu : clonage de comportement** (`models/bc_agent.json`).
-  150 episodes de demonstrations heuristiques enregistres en turbo (94 074
-  paires features -> action), reseau entraine par entropie croisee, precision
-  de validation 87.8 %.
+- **Esquives dans l'heuristique** : le wrapper expose desormais les
+  projectiles ennemis, les zones d'explosion telegraphees et l'attaque en
+  cours des boss. L'heuristique esquive les orbes (pas de cote
+  perpendiculaire), sort des cercles annonces, strafe les assauts re-vises
+  du gardien et frappe pendant sa fenetre d'etourdissement. Chaque ajout a
+  ete mesure par un audit des causes de mort (16 -> 9 morts sur 20
+  episodes, pertes de vie face au gardien divisees par deux).
+- **Agent retenu : clonage de comportement + DAgger**
+  (`models/bc_agent.json`). 150 episodes de demonstrations heuristiques
+  (117 151 paires, 100 features), puis une ronde DAgger : le clone joue
+  100 episodes pendant que l'heuristique etiquette chacun de ses etats
+  (69 638 paires) — le reseau apprend ainsi a se rattraper dans ses
+  propres derives. Entropie croisee, 256x256, precision de validation
+  85.6 %.
 
 Resultats du protocole final (20 episodes x 900 steps, meme score) :
 
@@ -343,19 +353,24 @@ Resultats du protocole final (20 episodes x 900 steps, meme score) :
 | --- | --- | --- | --- | --- |
 | Aleatoire | 10.54 | 1x | 1 | 0 |
 | DQN pur (meilleur checkpoint) | 6.66 | 0.6x | 0 | 0 |
-| Heuristique (reference) | 63.66 | 6.0x | 66 | 2 |
-| **Reseau clone (retenu)** | **56.89** | **5.4x** | 66 | 0 |
+| Heuristique (professeur) | 73.04 | 6.9x | 78 | 1 |
+| **Reseau clone + DAgger (retenu)** | **73.31** | **7.0x** | 74 | **2** |
 
-Le reseau clone joue seul (aucun garde-fou, aucune delegation a l'execution)
-et nettoie 2 a 5 salles par episode ; sa limite actuelle est le combat de
-boss, comme son professeur. Donnees : `reports/final_eval_bc.csv`,
+Le reseau retenu joue seul (aucun garde-fou, aucune delegation a
+l'execution), nettoie 2 a 5 salles par episode, esquive projectiles et
+zones d'explosion, et termine des etages — dont un run a 210 points (deux
+etages). L'ecart d'imitation avec le professeur est referme ; depasser ce
+niveau demanderait un affinage RL depuis ce modele (piste DQfD notee au
+carnet). Donnees : `reports/final_eval_bc.csv`,
 `reports/final_eval_heuristic.csv`.
 
 Reproduction complete :
 
 ```bash
 python scripts/collect_demos.py --episodes 150 --max-steps 900 --seed 42
-python scripts/train_bc.py
+python scripts/train_bc.py --hidden 256 256 --epochs 60
+python scripts/collect_demos.py --policy models/bc_agent.json --episodes 100 --seed 7 --output data/dagger1.npz
+python scripts/train_bc.py --demos data/demos.npz data/dagger1.npz --hidden 256 256 --epochs 60
 python scripts/watch_dqn.py --agent models/bc_agent.json --episodes 3
 ```
 

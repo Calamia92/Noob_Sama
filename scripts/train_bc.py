@@ -22,7 +22,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Clone the heuristic from recorded demonstrations."
     )
-    parser.add_argument("--demos", type=Path, default=DEFAULT_DEMOS)
+    parser.add_argument(
+        "--demos",
+        type=Path,
+        nargs="+",
+        default=[DEFAULT_DEMOS],
+        help="One or more demo files (base demonstrations + DAgger rounds).",
+    )
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -35,9 +41,15 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    data = np.load(args.demos)
-    states = data["states"]
-    actions = data["actions"]
+    all_states = []
+    all_actions = []
+    for path in args.demos:
+        data = np.load(path)
+        all_states.append(data["states"])
+        all_actions.append(data["actions"])
+        print(f"loaded {len(data['actions'])} pairs from {path}")
+    states = np.concatenate(all_states)
+    actions = np.concatenate(all_actions)
     n_samples, n_features = states.shape
     print(f"demos: {n_samples} pairs, {n_features} features")
 
