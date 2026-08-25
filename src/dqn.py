@@ -128,6 +128,26 @@ class DQNAgent:
         self.steps_trained += 1
         return float(np.mean(np.abs(td)))
 
+    def train_step_bc(self, states: np.ndarray, action_idx: np.ndarray) -> float:
+        """Behaviour-cloning step: softmax cross-entropy on demo actions.
+
+        The same network head serves as logits here and as Q-values for
+        TD fine-tuning, as in learning-from-demonstrations setups.
+        """
+        activations = self._forward(states, self.params)
+        logits = activations[-1]
+        z = logits - logits.max(axis=1, keepdims=True)
+        p = np.exp(z)
+        p /= p.sum(axis=1, keepdims=True)
+        n = len(action_idx)
+        rows = np.arange(n)
+        loss = float(-np.mean(np.log(p[rows, action_idx] + 1e-12)))
+        grad = p
+        grad[rows, action_idx] -= 1.0
+        self._backward(activations, grad / n)
+        self.steps_trained += 1
+        return loss
+
     def _backward(self, activations: list[np.ndarray], grad_out: np.ndarray) -> None:
         grads: list[np.ndarray] = [None] * len(self.params)
         delta = grad_out

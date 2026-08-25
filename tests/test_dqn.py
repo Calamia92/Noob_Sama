@@ -59,6 +59,15 @@ class DQNTests(unittest.TestCase):
         self.assertGreater(q[0], 0.8)
         self.assertLess(q[1], -0.8)
 
+    def test_behaviour_cloning_learns_a_mapping(self) -> None:
+        agent = DQNAgent(3, ["a", "b", "c"], hidden=(16, 16), lr=1e-2, seed=0)
+        states = np.eye(3, dtype=np.float32)
+        actions = np.array([2, 0, 1], dtype=np.int32)
+        for _ in range(300):
+            agent.train_step_bc(states, actions)
+        predicted = [int(np.argmax(agent.q_values(s))) for s in states]
+        self.assertEqual(predicted, [2, 0, 1])
+
     def test_save_and_load_roundtrip(self) -> None:
         agent = DQNAgent(N_FEATURES, ["a", "b", "c"], seed=1)
         features = featurize(obs())

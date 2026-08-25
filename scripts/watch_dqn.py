@@ -45,6 +45,13 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional CSV file recording one row per episode.",
     )
+    parser.add_argument(
+        "--guard",
+        action="store_true",
+        help="Demo guard: after 8 steps without movement outside combat, "
+        "the heuristic takes over for a stretch (the role exploration "
+        "plays during training).",
+    )
     return parser.parse_args()
 
 
@@ -70,9 +77,23 @@ def main() -> None:
             previous = None
             done = False
             steps = 0
+            trail: list[tuple[float, float]] = []
+            guard_steps = 0
 
             while not done and steps < args.max_steps:
                 action = agent.act(featurize(obs, previous), epsilon=args.epsilon)
+                if args.guard:
+                    trail.append((obs.x, obs.y))
+                    if len(trail) > 8:
+                        trail.pop(0)
+                        spread_x = max(p[0] for p in trail) - min(p[0] for p in trail)
+                        spread_y = max(p[1] for p in trail) - min(p[1] for p in trail)
+                        if spread_x < 12 and spread_y < 12 and obs.enemy_count == 0:
+                            guard_steps = 12
+                            trail.clear()
+                    if guard_steps > 0:
+                        action = "heuristic"
+                        guard_steps -= 1
                 if action == "heuristic":
                     resolved = heuristic_action(obs)
                     action = resolved if resolved in ACTIONS else "noop"
