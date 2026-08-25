@@ -22,6 +22,19 @@ from src.features import N_FEATURES, featurize
 from src.policies import heuristic_action
 
 
+# The network learns the full keyboard action space plus a delegation
+# meta-action, like the tabular agent: the heuristic becomes the
+# performance floor and the network learns where to play better itself.
+DQN_ACTIONS = list(ACTIONS) + ["heuristic"]
+
+
+def resolve_action(label: str, obs) -> str:
+    if label != "heuristic":
+        return label
+    action = heuristic_action(obs)
+    return action if action in ACTIONS else "noop"
+
+
 DEFAULT_OUTPUT = ROOT / "reports" / "training_scores_dqn.csv"
 DEFAULT_BEST = ROOT / "models" / "dqn_agent.json"
 DEFAULT_LATEST = ROOT / "checkpoints" / "dqn_latest.json"
@@ -128,18 +141,16 @@ def run_episode(
 
     while not done and steps < args.max_steps:
         if greedy:
-            action = agent.act(features, epsilon=args.eval_epsilon)
+            label = agent.act(features, epsilon=args.eval_epsilon)
         elif rng.random() < epsilon_at(global_step, args):
             if rng.random() < args.guide_ratio:
-                action = heuristic_action(obs)
-                if action not in ACTIONS:
-                    action = "noop"
+                label = "heuristic"
             else:
-                action = agent.actions[rng.randrange(len(agent.actions))]
+                label = agent.actions[rng.randrange(len(agent.actions))]
         else:
-            action = agent.act(features)
+            label = agent.act(features)
 
-        next_obs, _, done, _ = env.step(action)
+        next_obs, _, done, _ = env.step(resolve_action(label, obs))
         reward = (
             train_reward(
                 obs,
@@ -153,7 +164,7 @@ def run_episode(
         next_features = featurize(next_obs, obs)
 
         if buffer is not None:
-            buffer.add(features, agent.actions.index(action), reward, next_features, done)
+            buffer.add(features, agent.actions.index(label), reward, next_features, done)
             global_step += 1
             if buffer.size >= args.warmup_steps and global_step % args.train_every == 0:
                 losses.append(agent.train_step(buffer.sample(args.batch_size, agent.rng)))
@@ -204,7 +215,6 @@ def run_episode_with_retries(env: EclipseEnv, *pargs, max_attempts: int = 3, **k
 def main() -> None:
     args = parse_args()
     rng = random.Random(args.seed)
-    actions = list(ACTIONS)
 
     best_mean = float("-inf")
     start_episode = 1
@@ -217,7 +227,7 @@ def main() -> None:
     else:
         agent = DQNAgent(
             N_FEATURES,
-            actions,
+            DQN_ACTIONS,
             hidden=tuple(args.hidden),
             gamma=args.gamma,
             lr=args.lr,

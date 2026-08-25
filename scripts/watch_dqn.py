@@ -10,8 +10,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.dqn import DQNAgent
-from src.eos_env import EclipseEnv
+from src.eos_env import ACTIONS, EclipseEnv
 from src.features import featurize
+from src.policies import heuristic_action
 
 
 DEFAULT_AGENT = ROOT / "models" / "dqn_agent.json"
@@ -64,6 +65,9 @@ def main() -> None:
 
             while not done and steps < args.max_steps:
                 action = agent.act(featurize(obs, previous), epsilon=args.epsilon)
+                if action == "heuristic":
+                    resolved = heuristic_action(obs)
+                    action = resolved if resolved in ACTIONS else "noop"
                 previous = obs
                 obs, _reward, done, _info = env.step(action)
                 steps += 1
