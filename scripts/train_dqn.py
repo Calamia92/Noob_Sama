@@ -76,7 +76,14 @@ def parse_args() -> argparse.Namespace:
         "always uses the network alone.",
     )
     parser.add_argument("--hp-penalty", type=float, default=2.0)
-    parser.add_argument("--door-shaping", type=float, default=0.005)
+    parser.add_argument("--door-shaping", type=float, default=0.02)
+    parser.add_argument(
+        "--time-reward",
+        type=float,
+        default=0.0,
+        help="Weight of the survival-time term in the TRAINING reward. Zero "
+        "by default: paying for idle time taught the network to camp.",
+    )
     parser.add_argument("--eval-every", type=int, default=20)
     parser.add_argument("--eval-episodes", type=int, default=3)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
@@ -118,7 +125,16 @@ def run_episode(
             action = agent.act(features)
 
         next_obs, _, done, _ = env.step(action)
-        reward = train_reward(obs, next_obs, args.hp_penalty, args.door_shaping) / REWARD_SCALE
+        reward = (
+            train_reward(
+                obs,
+                next_obs,
+                args.hp_penalty,
+                args.door_shaping,
+                time_weight=args.time_reward,
+            )
+            / REWARD_SCALE
+        )
         next_features = featurize(next_obs, obs)
 
         if buffer is not None:
