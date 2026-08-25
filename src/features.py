@@ -64,12 +64,25 @@ def featurize(obs: Observation, previous: Observation | None = None) -> list[flo
         extra = None
         if enemy:
             max_hp = enemy.get("max_hp") or 1
+            state = enemy.get("state")
+            attack = enemy.get("attack")
+            vulnerable = attack == "heavyCharge" and enemy.get("attack_step", 0) >= 2
+            windup = (
+                state in {"aim", "windup", "prime", "dash"}
+                or (
+                    state == "attack"
+                    and attack in {"tripleLunge", "heavyCharge", "slamQuake"}
+                    and not vulnerable
+                )
+            )
             extra = [
                 enemy.get("hp", 0) / max_hp,
                 1.0 if enemy.get("elite") or enemy.get("boss") else 0.0,
+                1.0 if windup else 0.0,
+                1.0 if vulnerable else 0.0,
             ]
         else:
-            extra = [0.0, 0.0]
+            extra = [0.0, 0.0, 0.0, 0.0]
         features.extend(_entity(obs, enemy, extra))
 
     for i in range(2):
@@ -88,6 +101,40 @@ def featurize(obs: Observation, previous: Observation | None = None) -> list[flo
 
     features.extend(_entity(obs, obs.target_door))
     features.extend(_entity(obs, obs.portal))
+
+    # Threats the dodging behaviour reacts to: without them the network
+    # could never reproduce sidesteps and blast escapes.
+    for i in range(2):
+        shot = obs.shots[i] if i < len(obs.shots) else None
+        if shot:
+            features.extend(
+                [
+                    1.0,
+                    (shot["x"] - obs.x) / ROOM_W,
+                    (shot["y"] - obs.y) / ROOM_H,
+                    shot.get("distance", DIAG) / DIAG,
+                    shot.get("vx", 0.0) / 320.0,
+                    shot.get("vy", 0.0) / 320.0,
+                ]
+            )
+        else:
+            features.extend([0.0] * 6)
+
+    for i in range(2):
+        hazard = obs.hazards[i] if i < len(obs.hazards) else None
+        if hazard:
+            features.extend(
+                [
+                    1.0,
+                    (hazard["x"] - obs.x) / ROOM_W,
+                    (hazard["y"] - obs.y) / ROOM_H,
+                    hazard.get("distance", DIAG) / DIAG,
+                    hazard.get("r", 0.0) / 140.0,
+                    hazard.get("remaining", 0.0) / 1.3,
+                ]
+            )
+        else:
+            features.extend([0.0] * 6)
 
     choice = obs.near_choice
     features.extend([1.0 if choice else 0.0, choice["distance"] / DIAG if choice else 0.0])
@@ -140,6 +187,8 @@ def _count_features() -> int:
         "available_doors": [],
         "pickups": [],
         "enemies": [],
+        "shots": [],
+        "hazards": [],
     }
     assert {f.name for f in fields(Observation)} == set(dummy_values)
     return len(featurize(Observation(**dummy_values)))

@@ -17,11 +17,29 @@ ROOM_WIDTH = 1280.0
 ROOM_HEIGHT = 720.0
 WALL_MARGIN = 120.0
 
+# Dodging thresholds. Enemy shots are slow orbs meant to be dodged by
+# movement; hazards are telegraphed blast circles that resolve when their
+# fuse runs out.
+SHOT_THREAT_HORIZON = 0.8
+SHOT_THREAT_RADIUS = 30.0
+HAZARD_MARGIN = 28.0
+HAZARD_DASH_WINDOW = 0.35
+TELEGRAPH_STATES = {"aim", "windup", "prime"}
+
 
 def heuristic_action(obs: Observation) -> str:
     """Small rule-based policy used as a smarter target than pure random."""
     if obs.state != "play":
         return "noop"
+
+    # Survival first: leave telegraphed blast zones and sidestep incoming
+    # projectiles before any other objective.
+    escape = _hazard_escape(obs)
+    if escape:
+        return escape
+    dodge = _shot_dodge(obs)
+    if dodge:
+        return dodge
 
     if (
         obs.near_choice
@@ -242,21 +260,180 @@ def _shoot_towards(obs: Observation, target: dict) -> str:
     return "shoot_down" if dy > 0 else "shoot_up"
 
 
+def _wall_room(x: float, y: float) -> float:
+    return min(x, ROOM_WIDTH - x, y, ROOM_HEIGHT - y)
+
+
+_DIRS = {
+    "up": (0.0, -1.0),
+    "down": (0.0, 1.0),
+    "left": (-1.0, 0.0),
+    "right": (1.0, 0.0),
+    "up_left": (-0.707, -0.707),
+    "up_right": (0.707, -0.707),
+    "down_left": (-0.707, 0.707),
+    "down_right": (0.707, 0.707),
+}
+
+
+def _best_direction(obs: Observation, preferred: list[tuple[float, float]]) -> str:
+    """Pick the escape direction that also stays clear of every known
+    threat (hazard circles, nearby enemies, walls), instead of blindly
+    following the geometric ideal into another danger."""
+    units = []
+    for pdx, pdy in preferred:
+        norm = (pdx * pdx + pdy * pdy) ** 0.5
+        if norm > 1e-6:
+            units.append((pdx / norm, pdy / norm))
+    step = 90.0
+
+    def score(ux: float, uy: float) -> float:
+        nx, ny = obs.x + ux * step, obs.y + uy * step
+        value = 2.0 * max((ux * px + uy * py for px, py in units), default=0.0)
+        wall = _wall_room(nx, ny)
+        if wall < 40:
+            value -= 3.0
+        elif wall < WALL_MARGIN:
+            value -= 1.0
+        for hazard in obs.hazards:
+            clear = ((nx - hazard["x"]) ** 2 + (ny - hazard["y"]) ** 2) ** 0.5 - hazard["r"]
+            if clear < HAZARD_MARGIN:
+                value -= 4.0
+            elif clear < 90:
+                value -= 1.0
+        for enemy in obs.enemies:
+            d = ((nx - enemy["x"]) ** 2 + (ny - enemy["y"]) ** 2) ** 0.5
+            if d < 70:
+                value -= 3.0
+            elif d < 130:
+                value -= 1.0
+        return value
+
+    return max(_DIRS, key=lambda name: score(*_DIRS[name]))
+
+
+def _hazard_escape(obs: Observation) -> str | None:
+    for hazard in obs.hazards:
+        if hazard["distance"] > hazard["r"] + HAZARD_MARGIN:
+            continue
+        dx = obs.x - hazard["x"]
+        dy = obs.y - hazard["y"]
+        if abs(dx) < 1 and abs(dy) < 1:
+            dx = ROOM_WIDTH / 2 - obs.x
+            dy = ROOM_HEIGHT / 2 - obs.y
+        move = _best_direction(obs, [(dx, dy)])
+        if hazard["remaining"] < HAZARD_DASH_WINDOW:
+            return "dash_" + move
+        enemy = obs.nearest_enemy
+        if enemy and "_" not in move:
+            return f"{move}_{_shoot_towards(obs, enemy)}"
+        return move
+    return None
+
+
+def _shot_dodge(obs: Observation) -> str | None:
+    for shot in obs.shots:
+        rx = obs.x - shot["x"]
+        ry = obs.y - shot["y"]
+        vx = shot.get("vx", 0.0)
+        vy = shot.get("vy", 0.0)
+        speed_sq = vx * vx + vy * vy
+        if speed_sq <= 1e-6:
+            continue
+        t_close = (rx * vx + ry * vy) / speed_sq
+        if t_close < 0 or t_close > SHOT_THREAT_HORIZON:
+            continue
+        cx = rx - vx * t_close
+        cy = ry - vy * t_close
+        if cx * cx + cy * cy > SHOT_THREAT_RADIUS * SHOT_THREAT_RADIUS:
+            continue
+        # Sidestep perpendicular to the shot's path, whichever side is
+        # clear of walls, hazards and other enemies.
+        move = _best_direction(obs, [(-vy, vx), (vy, -vx)])
+        enemy = obs.nearest_enemy
+        if enemy and "_" not in move:
+            return f"{move}_{_shoot_towards(obs, enemy)}"
+        return move
+    return None
+
+
+def _strafe_move(obs: Observation, enemy: dict) -> str:
+    ex = enemy["x"] - obs.x
+    ey = enemy["y"] - obs.y
+    return _best_direction(obs, [(-ey, ex), (ey, -ex)])
+
+
+def _boss_attack_response(obs: Observation, enemy: dict, shot: str) -> str | None:
+    """Pattern-specific answers to the guardians' signature attacks."""
+    if enemy.get("state") != "attack":
+        return None
+    attack = enemy.get("attack")
+    distance = enemy.get("distance", 9999)
+    step = enemy.get("attack_step", 0)
+
+    if attack in {"tripleLunge", "heavyCharge"}:
+        if attack == "heavyCharge" and step >= 2:
+            # Stunned against a wall: the free-damage window.
+            if distance > 320:
+                return _combine(_move_towards(obs, enemy), shot)
+            return shot
+        # Aiming or mid-lunge: the charge follows the boss-player line, so
+        # keep clearing it sideways, with a dash when the maw is close
+        # (each lunge covers ~160 px, walking alone barely clears it).
+        move = _strafe_move(obs, enemy)
+        if distance < 260:
+            return "dash_" + move if move != "noop" else _dash_away(obs, enemy)
+        if "_" not in move:
+            return f"{move}_{shot}"
+        return move
+
+    if attack == "slamQuake":
+        # Bodyslam blast (radius 140) resolves the instant it lands: the
+        # only reliable dodge is distance during the wind-up.
+        if distance < 220:
+            move = _move_away(obs, enemy)
+            if "_" not in move and move != "noop":
+                return f"{move}_{shot}"
+            return move if move != "noop" else _dash_away(obs, enemy)
+        return shot
+
+    return None
+
+
 def _combat_action(obs: Observation, enemy: dict) -> str:
     shot = _shoot_towards(obs, enemy)
     distance = enemy.get("distance", 9999)
+    boss = bool(enemy.get("boss"))
 
-    if distance < 190:
-        if distance < 105:
+    if boss:
+        response = _boss_attack_response(obs, enemy, shot)
+        if response:
+            return response
+
+    # A telegraphed attack aims at the player's current position: strafing
+    # sideways breaks the line before the enemy commits.
+    if enemy.get("state") in TELEGRAPH_STATES and distance < 420:
+        move = _strafe_move(obs, enemy)
+        if "_" not in move:
+            return f"{move}_{shot}"
+        return move
+    if enemy.get("state") == "dash" and distance < 260:
+        move = _strafe_move(obs, enemy)
+        return "dash_" + move if move != "noop" else _dash_away(obs, enemy)
+
+    # Bosses hit harder on contact and lunge further: keep more distance.
+    near, retreat, defend, engage = (150, 260, 420, 560) if boss else (105, 190, 330, 470)
+    if distance < retreat:
+        if distance < near:
             return _dash_away(obs, enemy)
         return _combine(_move_away(obs, enemy), shot)
 
     hp_low = obs.hp * 2 <= obs.max_hp
     crowded = obs.enemy_count >= 2
-    if hp_low or crowded or distance < 330:
+    if hp_low or crowded or distance < defend:
         return _combine(_defensive_move(obs, enemy), shot)
 
-    if distance > 470:
+    if distance > engage:
         return _combine(_move_towards(obs, enemy), shot)
 
     return shot

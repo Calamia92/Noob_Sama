@@ -124,6 +124,8 @@ window.__eosObserve = () => {
                 state: e.state || null,
                 elite: !!e.elite,
                 boss: !!e.type?.boss,
+                attack: e.attackName || null,
+                attack_step: e.atkStep ?? 0,
                 distance: dist(e.x ?? 0, e.y ?? 0),
             });
         }
@@ -239,6 +241,40 @@ window.__eosObserve = () => {
         distance: dist(room.w / 2, room.h / 2),
     } : null;
 
+    // Enemy projectiles and telegraphed blast zones: both are dodgeable
+    // by movement, provided the agent can actually see them.
+    const activeShots = [];
+    const shots = dbg.enemyShots;
+    if (shots) {
+        for (let i = 0; i < shots.count; i++) {
+            const sh = shots.items[i];
+            if (!sh) continue;
+            activeShots.push({
+                x: sh.x ?? 0,
+                y: sh.y ?? 0,
+                vx: sh.vx ?? 0,
+                vy: sh.vy ?? 0,
+                radius: sh.radius ?? 6,
+                distance: dist(sh.x ?? 0, sh.y ?? 0),
+            });
+        }
+    }
+    activeShots.sort((a, b) => a.distance - b.distance);
+
+    const activeHazards = [];
+    if (dbg.hazards) {
+        for (const hz of dbg.hazards) {
+            activeHazards.push({
+                x: hz.x,
+                y: hz.y,
+                r: hz.r,
+                remaining: Math.max(0, (hz.fuse ?? 0) - (hz.t ?? 0)),
+                distance: dist(hz.x, hz.y),
+            });
+        }
+    }
+    activeHazards.sort((a, b) => a.distance - b.distance);
+
     return {
         state: g.state,
         hp: p.hp ?? 0,
@@ -270,6 +306,8 @@ window.__eosObserve = () => {
         available_doors: availableDoors,
         pickups: activePickups.slice(0, 8),
         enemies: activeEnemies.slice(0, 3),
+        shots: activeShots.slice(0, 6),
+        hazards: activeHazards.slice(0, 6),
     };
 };
 """
@@ -319,6 +357,8 @@ class Observation:
     available_doors: list[dict[str, Any]]
     pickups: list[dict[str, Any]]
     enemies: list[dict[str, Any]]
+    shots: list[dict[str, Any]]
+    hazards: list[dict[str, Any]]
 
 
 class EclipseEnv:
@@ -532,6 +572,8 @@ class EclipseEnv:
             "import { Game } from './game/game.js';\n"
             "import { enemies } from './game/enemy.js';\n"
             "import { pickups } from './game/pickup.js';\n"
+            "import { enemyShots } from './game/enemyshot.js';\n"
+            "import { hazards } from './game/boss.js';\n"
             "import { consommer } from './core/hitstop.js';",
             1,
         )
@@ -539,7 +581,7 @@ class EclipseEnv:
             "const game = new Game(view);",
             "const game = new Game(view); "
             "window.__eosGame = game; "
-            "window.__eosDebug = { enemies, pickups };",
+            "window.__eosDebug = { enemies, pickups, enemyShots, hazards };",
             1,
         )
         # Audio adds startup cost and has no effect on the simulation.
