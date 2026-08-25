@@ -148,12 +148,16 @@ def train_reward(
     after: Observation,
     hp_penalty: float,
     door_shaping: float = 0.0,
+    time_weight: float = 0.1,
 ) -> float:
+    # time_weight=0 removes the survival income from the TRAINING signal
+    # only (the comparison score keeps its time term): paying for idle time
+    # made "camp in the start room" a risk-free optimum.
     return (
         (after.floors - before.floors) * 100
         + (after.rooms - before.rooms) * 10
         + (after.kills - before.kills)
-        + max(0.0, after.time - before.time) * 0.1
+        + max(0.0, after.time - before.time) * time_weight
         - max(0.0, before.hp - after.hp) * hp_penalty
         + door_potential(after, door_shaping)
         - door_potential(before, door_shaping)

@@ -131,6 +131,106 @@ Decision : presenter la version finale comme un agent Q-learning tabulaire 16
 actions avec controle bas niveau heuristique et garde-fous de demo, et garder
 les intentions tactiques comme piste non retenue faute de stabilite.
 
+## Phase 2 - environnement turbo, DQN et clonage de comportement
+
+Objectif de la phase : depasser le plafond de la Q-table (granularite de la
+table) et viser un agent capable de finir un etage. Budget re-echantillonne :
+episodes de 900 steps, baseline aleatoire re-mesuree sur ce budget.
+
+| Version | Changement teste | Signal observe | Decision |
+| --- | --- | --- | --- |
+| V9 | Environnement turbo (boucle du jeu pilotee en synchrone) | ~540 steps/s au lieu de 4-5, temps de jeu exact par step | Adopte ; baselines re-mesurees (600 steps : 8.45, 900 steps : 10.54) |
+| V10 | DQN 59 actions sur 70 features continues | Le greedy converge vers "camper dans la salle de depart" (evals figees a 13.54) | Retirer le revenu de survie de la recompense d'entrainement |
+| V11 | Temps retire + cout par step + epsilon d'eval | L'agent traverse les portes puis se fige/meurt en combat ; evals instables | Ajouter une meta-action de delegation comme en V6 |
+| V12 | Delegation heuristique + penalite HP 1.0 | Record eval 25.4 (2.4x la baseline) mais le greedy n'utilise jamais la delegation (0/900 mesure) | Delegation apprise par sequences, pas par steps isoles |
+| V13 | Delegation collante (sequences de 12 steps) + reprise du meilleur | 7 etages termines a l'ENTRAINEMENT (scores 147-181), mais ecart train ~64 / eval ~6 : la perf appartient aux sequences heuristiques | Mesurer honnetement chaque composante |
+| V14 | Eval comparative 20 episodes x 900 steps | DQN pur 6.66 (sous l'aleatoire 10.54) ; heuristique corrigee 63.66 avec 2 etages | Resultat negatif documente : le RL pur n'apprend pas le combat fin sur ce budget |
+| V15 | Clonage de comportement (94 074 paires heuristiques, 87.8 % de precision val.) | 56.89 de moyenne sur 20 episodes, 5.4x la baseline, 66 salles et 277 kills, reseau seul sans garde-fou | Le clonage marche ; ameliorer le professeur puis re-cloner |
+| V16 | Esquives dans l'heuristique (projectiles, zones, patterns de boss exposes par le wrapper) | Audit des morts sur 20 episodes : 16 -> 9 morts, pertes face au gardien Vorace divisees par deux, eruptions 13 -> 6, ronces 22 -> 4 ; heuristique 63.66 -> 73.04 | Chaque parade validee par l'audit avant d'etre gardee |
+| V17 | Re-clonage 100 features (117 151 paires) + une ronde DAgger (69 638 paires etiquetees sur les etats du clone) | 73.31 de moyenne, 7x la baseline, 2 etages en eval, ecart d'imitation referme (clone = professeur) | Le clonage transfere ; continuer d'ameliorer le professeur |
+| V18 | Observation en demo : gel a l'entree des salles, pas de dash de voyage, routage aveugle a la carte. Correctifs : pre-positionnement pendant la fenetre d'apparition (le professeur figeait, le clone l'imitait), dash hors combat vers les cibles > 260 px, routage BFS par priorite (tresor > marchand > salles > mini-boss > gardien en dernier) | Professeur 73.04 -> 90.08 (6 morts/20 au lieu de 14) ; clone re-entraine (129 457 + 74 080 paires, 109 features) : 78.11 de moyenne, 7.4x la baseline | Une deuxieme ronde DAgger pour refermer l'ecart restant |
+| V19 | Deuxieme ronde DAgger (74 484 paires sur les etats du clone V18, ~278 000 paires cumulees) | **93.23 de moyenne, 8.8x la baseline, 100 salles, 2 etages, pire episode a 51.2** - le clone egale son professeur (90.08) | Modele retenu : `models/bc_agent.json` (val acc 86.5 %) |
+| V20 | Professeur plus agressif (distances de combat resserrees, fermeture en duel) | 80.9 de moyenne, 96 salles, mais 6 morts/20 au lieu de 2 : plus de kills, zero salle de gain | Essai negatif : reverti, les esquives paient plus que la proximite |
+| V21 | Affinage RL depuis le champion (`scripts/train_dqfd.py` : perte TD sur l'experience fraiche + ancre supervisee sur ~370 000 demonstrations, lr 5e-5) | La politique derive (38) puis se reconstruit (~85 en mini-evals), mais deux checkpoints "records" testes au protocole complet plafonnent a 70.8 et 65.8, avec une regularite degradee (pire episode 2.96) | Essai negatif documente : le RL n'a pas depasse l'imitation dans ce budget ; le champion V19 reste le modele final |
+
+### V10-V13 - trois pathologies du DQN, mesurees et corrigees
+
+1. **Camping** : le terme de temps du score (+0.1/s) paye l'immobilite sans
+   risque ; le greedy convergeait vers 13.54 exactement (survie totale, zero
+   contact) a chaque eval. Correctif : temps retire de la recompense
+   d'ENTRAINEMENT (le score de comparaison ne change pas).
+2. **Gel devant la porte** : trace pas-a-pas : l'agent marche droit vers la
+   porte puis se fige a 164 px, mal aligne, sur une action statique (etat
+   inchange -> meme argmax -> boucle infinie). Correctifs : cout de -0.02 par
+   step et 2 % d'exploration en eval (protocole DQN standard).
+3. **Delegation morte** : la meta-action "heuristic" tiree step par step
+   pendant l'exploration ne montre jamais la valeur de l'heuristique (un step
+   isole dans du bruit). Correctif : sequences collantes de 12 steps. Resultat :
+   des etages complets a l'entrainement, mais le reseau seul ne les a pas
+   internalises dans le budget disponible.
+
+### V15 - apprentissage par demonstrations
+
+150 episodes heuristiques enregistres en turbo (94 074 paires
+features -> action, 11 etages dans les demonstrations), reseau entraine par
+entropie croisee (30 epoques, ~2 min), precision de validation 87.8 %.
+
+Le reseau clone atteint ~89 % du score de son professeur et nettoie 2 a 5
+salles a chaque episode du protocole. Sa limite est celle du professeur : le
+combat de boss. D'ou V16 : ameliorer le professeur, puis re-cloner (ses
+progres se transferent par re-collecte).
+
+### V16 - le professeur apprend a esquiver
+
+L'audit des causes de mort (lecture de `killerName` dans le jeu a chaque
+perte de vie) a montre que 16 morts sur 20 arrivaient dans la salle du boss,
+avec le gardien "Vorace" pour premier tueur (46 pertes de vie), devant les
+projectiles (22) et les eruptions telluriques (17). Trois reponses, chacune
+re-mesuree par le meme audit :
+
+1. Wrapper : exposition des projectiles ennemis (`enemyShots`), des zones
+   d'explosion (`hazards`, avec meche restante) et de l'attaque en cours des
+   boss (`attackName`, `atkStep`).
+2. Heuristique : pas de cote perpendiculaire aux orbes (point d'approche
+   minimale), sortie des cercles annonces (dash si la meche est courte),
+   strafe des assauts re-vises (`tripleLunge`), distance pendant le
+   `slamQuake`, punition du boss etourdi apres un `heavyCharge` manque.
+3. Choix de direction par scoring des 8 directions contre TOUS les dangers
+   connus (zones, ennemis proches, murs) : fuir une eruption ne doit pas
+   mener dans une autre, ni dans une ronce.
+
+Resultat : 16 -> 9 morts sur 20 episodes, pertes face au Vorace divisees par
+deux, eruptions 13 -> 6, ronces 22 -> 4 ; score moyen 63.66 -> 73.04 et un
+plancher qui monte de 23.8 a 40.1.
+
+### V17 - re-clonage et DAgger
+
+Re-collecte avec le professeur ameliore : 117 151 paires (100 features
+desormais, menaces incluses — sans elles le clone ne pourrait pas expliquer
+les esquives qu'il imite), 25 etages dans les 150 episodes. Clonage 256x256
+sur 60 epoques : 84.6 % de precision, 66.57 en eval.
+
+Puis une ronde DAgger : le clone joue 100 episodes, l'heuristique etiquette
+chaque etat visite (69 638 paires). Le reseau re-entraine sur l'union
+apprend a corriger ses propres derives — la faiblesse classique du clonage
+pur. Precision 85.6 %, et surtout : **73.31 de moyenne sur le protocole
+(7x la baseline), 2 etages termines en eval, ecart clone/professeur
+referme**.
+
+Piste restante pour depasser le professeur : affinage RL depuis ce modele
+(type DQfD, perte supervisee + perte TD melangees — `train_step_bc` et
+`train_step` coexistent deja dans `src/dqn.py`).
+
+Commandes de reproduction :
+
+```bash
+python scripts/collect_demos.py --episodes 150 --max-steps 900 --seed 42
+python scripts/train_bc.py --hidden 256 256 --epochs 60
+python scripts/collect_demos.py --policy models/bc_agent.json --episodes 100 --seed 7 --output data/dagger1.npz
+python scripts/train_bc.py --demos data/demos.npz data/dagger1.npz --hidden 256 256 --epochs 60
+python scripts/watch_dqn.py --agent models/bc_agent.json --episodes 3
+```
+
 ## Limites connues
 
 - Les donjons ne sont pas seedables, donc les evaluations courtes restent

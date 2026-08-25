@@ -47,6 +47,12 @@ def obs(**overrides: object) -> Observation:
         portal=None,
         available_doors=[],
         pickups=[],
+        enemies=[],
+        shots=[],
+        hazards=[],
+        spawning=[],
+        target_room_type=None,
+        target_room_hops=0,
     )
     return replace(base, **overrides)
 
@@ -121,7 +127,20 @@ class CoreBehaviorTests(unittest.TestCase):
 
         self.assertNotEqual(action, "left")
 
-    def test_heuristic_prioritizes_exit_over_pickup_after_combat(self) -> None:
+    def test_heuristic_loots_cleared_room_before_exit(self) -> None:
+        action = heuristic_action(
+            obs(
+                x=400,
+                y=100,
+                doors_open=True,
+                target_door={"x": 620, "y": 100, "distance": 220, "dir": "right"},
+                pickups=[{"x": 200, "y": 100, "distance": 200, "type": "gold"}],
+            )
+        )
+
+        self.assertEqual(action, "left")
+
+    def test_heuristic_skips_pickup_already_underfoot(self) -> None:
         action = heuristic_action(
             obs(
                 doors_open=True,
@@ -131,6 +150,182 @@ class CoreBehaviorTests(unittest.TestCase):
         )
 
         self.assertEqual(action, "right")
+
+    def test_heuristic_repositions_during_spawn_window(self) -> None:
+        action = heuristic_action(
+            obs(
+                x=120,
+                y=120,
+                spawning=[{"x": 900, "y": 500, "distance": 870}],
+            )
+        )
+
+        self.assertEqual(action, "down_right")
+
+    def test_heuristic_dashes_toward_far_door(self) -> None:
+        action = heuristic_action(
+            obs(
+                x=200,
+                y=360,
+                doors_open=True,
+                target_door={"x": 1280, "y": 360, "distance": 1080, "dir": "right"},
+            )
+        )
+
+        self.assertEqual(action, "dash_right")
+
+    def test_heuristic_aligns_with_door_frame_before_crossing(self) -> None:
+        action = heuristic_action(
+            obs(
+                x=1100,
+                y=250,
+                doors_open=True,
+                target_door={"x": 1280, "y": 360, "distance": 211, "dir": "right"},
+            )
+        )
+
+        self.assertEqual(action, "down")
+
+    def test_heuristic_walks_toward_near_door(self) -> None:
+        action = heuristic_action(
+            obs(
+                x=1100,
+                y=360,
+                doors_open=True,
+                target_door={"x": 1280, "y": 360, "distance": 180, "dir": "right"},
+            )
+        )
+
+        self.assertEqual(action, "right")
+
+    def test_heuristic_dashes_out_of_hazard_about_to_blow(self) -> None:
+        action = heuristic_action(
+            obs(
+                x=640,
+                y=360,
+                hazards=[{"x": 640, "y": 380, "r": 60, "remaining": 0.2, "distance": 20}],
+            )
+        )
+
+        self.assertEqual(action, "dash_up")
+
+    def test_heuristic_walks_out_of_hazard_with_time_left(self) -> None:
+        action = heuristic_action(
+            obs(
+                x=640,
+                y=360,
+                hazards=[{"x": 700, "y": 360, "r": 60, "remaining": 0.9, "distance": 60}],
+            )
+        )
+
+        self.assertEqual(action, "left")
+
+    def test_heuristic_sidesteps_incoming_shot(self) -> None:
+        action = heuristic_action(
+            obs(
+                x=640,
+                y=360,
+                shots=[{"x": 520, "y": 360, "vx": 200.0, "vy": 0.0, "distance": 120}],
+            )
+        )
+
+        self.assertIn(action, {"up", "down"})
+
+    def test_heuristic_ignores_shot_flying_away(self) -> None:
+        action = heuristic_action(
+            obs(
+                x=640,
+                y=360,
+                shots=[{"x": 700, "y": 360, "vx": 200.0, "vy": 0.0, "distance": 60}],
+            )
+        )
+
+        self.assertEqual(action, "noop")
+
+    def test_heuristic_keeps_bigger_distance_from_boss(self) -> None:
+        normal = heuristic_action(
+            obs(
+                x=640,
+                y=360,
+                enemy_count=1,
+                nearest_enemy={"x": 880, "y": 360, "distance": 240},
+            )
+        )
+        boss = heuristic_action(
+            obs(
+                x=640,
+                y=360,
+                enemy_count=1,
+                nearest_enemy={"x": 880, "y": 360, "distance": 240, "boss": True},
+            )
+        )
+
+        self.assertIn(normal, {"up_shoot_right", "down_shoot_right"})
+        self.assertEqual(boss, "left_shoot_right")
+
+    def test_heuristic_strafes_on_telegraphed_attack(self) -> None:
+        action = heuristic_action(
+            obs(
+                x=640,
+                y=360,
+                enemy_count=1,
+                nearest_enemy={"x": 880, "y": 360, "distance": 240, "state": "windup"},
+            )
+        )
+
+        self.assertIn(action, {"up_shoot_right", "down_shoot_right"})
+
+    def test_heuristic_strafes_during_boss_lunge(self) -> None:
+        action = heuristic_action(
+            obs(
+                x=640,
+                y=360,
+                enemy_count=1,
+                nearest_enemy={
+                    "x": 940,
+                    "y": 360,
+                    "distance": 300,
+                    "boss": True,
+                    "state": "attack",
+                    "attack": "tripleLunge",
+                    "attack_step": 0,
+                },
+            )
+        )
+
+        self.assertIn(action, {"up_shoot_right", "down_shoot_right"})
+
+    def test_heuristic_punishes_stunned_boss(self) -> None:
+        action = heuristic_action(
+            obs(
+                x=640,
+                y=360,
+                enemy_count=1,
+                nearest_enemy={
+                    "x": 880,
+                    "y": 360,
+                    "distance": 240,
+                    "boss": True,
+                    "state": "attack",
+                    "attack": "heavyCharge",
+                    "attack_step": 2,
+                },
+            )
+        )
+
+        self.assertEqual(action, "shoot_right")
+
+    def test_heuristic_dashes_out_when_overlapping_enemy(self) -> None:
+        action = heuristic_action(
+            obs(
+                x=640,
+                y=360,
+                enemy_count=1,
+                nearest_enemy={"x": 640, "y": 360, "distance": 0},
+            )
+        )
+
+        self.assertTrue(action.startswith("dash_"))
 
     def test_heuristic_strafes_while_shooting_in_crowded_combat(self) -> None:
         action = heuristic_action(

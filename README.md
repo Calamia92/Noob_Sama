@@ -315,16 +315,93 @@ niveau :
   trop l'espace d'actions ; la meilleure version pratique reste donc le modele
   Q-learning sauvegarde avec garde-fous heuristiques.
 
-## Demo de l'agent entraine
+## Phase 2 - environnement turbo et agent par demonstrations
 
-Le script recharge `models/best_agent.json` depuis un script neuf, sans
-relancer l'entrainement, et ouvre un navigateur visible :
+La deuxieme phase du projet (details et echecs mesures dans
+`docs/carnet_essais.md`, versions V9 a V15) a change d'echelle :
+
+- **Environnement turbo** : le jeu simule a pas fixe 120 Hz ; le wrapper pilote
+  cette boucle en synchrone (`EclipseEnv(turbo=True)`) au lieu de tenir les
+  touches en temps reel. Vitesse mesuree : ~540 steps/s au lieu de 4-5, temps
+  de jeu exact par step, mode temps reel conserve pour les demos.
+- **Budget re-echantillonne** : episodes de 900 steps (le budget minimal pour
+  atteindre le boss d'un etage), baseline aleatoire re-mesuree sur ce budget :
+  **10.54** en moyenne sur 20 episodes (`reports/random_baseline_900.csv`).
+- **DQN teste honnetement** : un Double DQN numpy (70 features continues,
+  59 actions, replay, target network) a ete pousse sur ~800 episodes en
+  5 iterations correctives. Resultat negatif documente : 6.66 en eval pure,
+  sous la baseline aleatoire - le RL pur n'apprend pas le combat fin avec ce
+  budget d'echantillons (`reports/final_eval_dqn.csv`).
+- **Esquives dans l'heuristique** : le wrapper expose desormais les
+  projectiles ennemis, les zones d'explosion telegraphees et l'attaque en
+  cours des boss. L'heuristique esquive les orbes (pas de cote
+  perpendiculaire), sort des cercles annonces, strafe les assauts re-vises
+  du gardien et frappe pendant sa fenetre d'etourdissement. Chaque ajout a
+  ete mesure par un audit des causes de mort (16 -> 9 morts sur 20
+  episodes, pertes de vie face au gardien divisees par deux).
+- **Agent retenu : clonage de comportement + DAgger**
+  (`models/bc_agent.json`). 150 episodes de demonstrations heuristiques
+  (117 151 paires, 100 features), puis une ronde DAgger : le clone joue
+  100 episodes pendant que l'heuristique etiquette chacun de ses etats
+  (69 638 paires) — le reseau apprend ainsi a se rattraper dans ses
+  propres derives. Entropie croisee, 256x256, precision de validation
+  85.6 %.
+
+- **Conscience de la carte et du temps** : le graphe du donjon est route par
+  priorite (tresor et marchand d'abord pour s'equiper, le gardien en
+  dernier), les deplacements hors combat utilisent le dash, et l'agent se
+  pre-positionne pendant la fenetre d'apparition des ennemis au lieu de
+  figer (un defaut du professeur que le clone imitait fidelement).
+
+Resultats du protocole final (20 episodes x 900 steps, meme score) :
+
+| Agent | Score moyen | vs aleatoire | Salles | Etages | Morts |
+| --- | --- | --- | --- | --- | --- |
+| Aleatoire | 10.54 | 1x | 1 | 0 | 0/20 (survie passive) |
+| DQN pur (meilleur checkpoint) | 6.66 | 0.6x | 0 | 0 | 20/20 |
+| Heuristique (professeur) | 90.08 | 8.5x | 97 | 2 | 6/20 |
+| **Reseau clone + 2 rondes DAgger (retenu)** | **93.23** | **8.8x** | 100 | **2** | 9/20 |
+
+Le reseau retenu joue seul (aucun garde-fou, aucune delegation a
+l'execution) : il nettoie 3 a 6 salles par episode, esquive projectiles et
+zones d'explosion, route sa progression par la carte, dash entre les
+objectifs et termine des etages (pire episode du protocole : 51 points).
+Apres deux rondes DAgger, il egale son professeur - le plafond naturel de
+l'imitation. L'affinage RL au-dela de ce niveau a ete tente
+(`scripts/train_dqfd.py`, perte TD + ancre sur les demonstrations) et ne
+l'a pas depasse dans le budget disponible : essai negatif documente au
+carnet (V21). Donnees : `reports/final_eval_bc.csv`,
+`reports/final_eval_heuristic.csv`.
+
+Reproduction complete :
 
 ```bash
-python scripts/watch_agent.py --episodes 3
+python scripts/collect_demos.py --episodes 150 --max-steps 900 --seed 42
+python scripts/train_bc.py --hidden 256 256 --epochs 60
+python scripts/collect_demos.py --policy models/bc_agent.json --episodes 100 --seed 7 --output data/dagger1.npz
+python scripts/train_bc.py --demos data/demos.npz data/dagger1.npz --hidden 256 256 --epochs 60
+python scripts/watch_dqn.py --agent models/bc_agent.json --episodes 3
 ```
 
-C'est la commande a utiliser pour la video de demonstration.
+Suivi d'un entrainement en direct (scores, salles, kills, etages) :
+
+```bash
+python scripts/dashboard.py
+# puis ouvrir http://127.0.0.1:8765
+```
+
+## Demo de l'agent entraine
+
+Chaque agent se recharge depuis un script neuf, sans relancer
+l'entrainement, et joue dans un navigateur visible :
+
+```bash
+# Agent phase 2 (reseau clone, recommande pour la demo)
+python scripts/watch_dqn.py --agent models/bc_agent.json --episodes 3
+
+# Agent phase 1 (Q-learning tabulaire)
+python scripts/watch_agent.py --episodes 3
+```
 
 ## Video de restitution
 
