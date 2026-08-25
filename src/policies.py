@@ -89,7 +89,7 @@ def heuristic_action(obs: Observation) -> str:
 
     exit_door = obs.target_door or obs.nearest_door
     if obs.doors_open and exit_door:
-        return _travel(obs, exit_door)
+        return _door_approach(obs, exit_door)
 
     return "noop"
 
@@ -265,6 +265,22 @@ def _travel(obs: Observation, target: dict) -> str:
     return move
 
 
+DOOR_ALIGN_TOLERANCE = 34.0
+
+
+def _door_approach(obs: Observation, door: dict) -> str:
+    # The opening is narrow: walking diagonally pins the player against
+    # the wall beside the frame. Close to the door, align on its axis
+    # first, then cross.
+    direction = door.get("dir")
+    if door.get("distance", 9999) < 260:
+        if direction in {"left", "right"} and abs(door["y"] - obs.y) > DOOR_ALIGN_TOLERANCE:
+            return _move_from_delta(0, (door["y"] - obs.y) * 10)
+        if direction in {"up", "down"} and abs(door["x"] - obs.x) > DOOR_ALIGN_TOLERANCE:
+            return _move_from_delta((door["x"] - obs.x) * 10, 0)
+    return _travel(obs, door)
+
+
 def _move_away(obs: Observation, target: dict) -> str:
     return _move_from_delta(obs.x - target["x"], obs.y - target["y"])
 
@@ -297,7 +313,12 @@ _DIRS = {
 }
 
 
-def _best_direction(obs: Observation, preferred: list[tuple[float, float]]) -> str:
+def _best_direction(
+    obs: Observation,
+    preferred: list[tuple[float, float]],
+    *,
+    cardinal_only: bool = False,
+) -> str:
     """Pick the escape direction that also stays clear of every known
     threat (hazard circles, nearby enemies, walls), instead of blindly
     following the geometric ideal into another danger."""
@@ -346,7 +367,8 @@ def _best_direction(obs: Observation, preferred: list[tuple[float, float]]) -> s
                 value -= 0.8
         return value
 
-    return max(_DIRS, key=lambda name: score(*_DIRS[name]))
+    names = ["up", "down", "left", "right"] if cardinal_only else list(_DIRS)
+    return max(names, key=lambda name: score(*_DIRS[name]))
 
 
 def _hazard_escape(obs: Observation) -> str | None:
@@ -488,15 +510,12 @@ def _dash_away(obs: Observation, target: dict) -> str:
 
 
 def _defensive_move(obs: Observation, enemy: dict) -> str:
-    wall_escape = _move_towards_center_if_near_wall(obs)
-    if wall_escape != "noop":
-        return wall_escape
-
+    # Cardinal strafe perpendicular to the enemy axis, scored against
+    # walls, hazards and other enemies (cardinal so the shooting combo
+    # survives _combine).
     dx = enemy["x"] - obs.x
     dy = enemy["y"] - obs.y
-    if abs(dx) > abs(dy):
-        return "up" if obs.y > ROOM_HEIGHT / 2 else "down"
-    return "left" if obs.x > ROOM_WIDTH / 2 else "right"
+    return _best_direction(obs, [(-dy, dx), (dy, -dx)], cardinal_only=True)
 
 
 def _move_towards_center_if_near_wall(obs: Observation) -> str:

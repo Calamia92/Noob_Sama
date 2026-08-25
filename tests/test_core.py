@@ -174,6 +174,18 @@ class CoreBehaviorTests(unittest.TestCase):
 
         self.assertEqual(action, "dash_right")
 
+    def test_heuristic_aligns_with_door_frame_before_crossing(self) -> None:
+        action = heuristic_action(
+            obs(
+                x=1100,
+                y=250,
+                doors_open=True,
+                target_door={"x": 1280, "y": 360, "distance": 211, "dir": "right"},
+            )
+        )
+
+        self.assertEqual(action, "down")
+
     def test_heuristic_walks_toward_near_door(self) -> None:
         action = heuristic_action(
             obs(
@@ -248,7 +260,7 @@ class CoreBehaviorTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(normal, "down_shoot_right")
+        self.assertIn(normal, {"up_shoot_right", "down_shoot_right"})
         self.assertEqual(boss, "left_shoot_right")
 
     def test_heuristic_strafes_on_telegraphed_attack(self) -> None:
