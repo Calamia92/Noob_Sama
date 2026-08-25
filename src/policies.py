@@ -43,6 +43,15 @@ def heuristic_action(obs: Observation) -> str:
             return _move_towards(obs, pickup)
         return _combat_action(obs, enemy)
 
+    # Loot the cleared room before leaving: gold, hearts and items stay on
+    # the floor otherwise (the doors open as soon as the fight ends).
+    pickup = _best_pickup(obs)
+    if pickup:
+        if pickup["type"] == "item" and pickup.get("choice") and pickup["distance"] <= 55:
+            return "interact"
+        if pickup["distance"] > 20:
+            return _move_towards(obs, pickup)
+
     if obs.portal_active and obs.portal:
         if obs.portal["distance"] <= 65:
             return "interact"
@@ -51,13 +60,6 @@ def heuristic_action(obs: Observation) -> str:
     exit_door = obs.target_door or obs.nearest_door
     if obs.doors_open and exit_door:
         return _move_towards(obs, exit_door)
-
-    pickup = _best_pickup(obs)
-    if pickup:
-        if pickup["type"] == "item" and pickup.get("choice") and pickup["distance"] <= 55:
-            return "interact"
-        if pickup["distance"] > 20:
-            return _move_towards(obs, pickup)
 
     return "noop"
 
@@ -262,7 +264,13 @@ def _combat_action(obs: Observation, enemy: dict) -> str:
 
 def _dash_away(obs: Observation, target: dict) -> str:
     move = _move_away(obs, target)
-    return "dash" if move == "noop" else "dash_" + move
+    if move == "noop":
+        # Overlapping the enemy: the away-vector collapses to zero, so pick
+        # any escape direction instead of dashing in place.
+        move = _move_towards_center_if_near_wall(obs)
+        if move == "noop":
+            move = "up" if obs.y > ROOM_HEIGHT / 2 else "down"
+    return "dash_" + move
 
 
 def _defensive_move(obs: Observation, enemy: dict) -> str:
