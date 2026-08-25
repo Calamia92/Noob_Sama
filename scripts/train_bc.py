@@ -36,6 +36,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--val-split", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--init",
+        type=Path,
+        default=None,
+        help="Warm-start from a saved agent instead of a fresh network.",
+    )
     return parser.parse_args()
 
 
@@ -58,13 +64,18 @@ def main() -> None:
     n_val = max(1, int(n_samples * args.val_split))
     val_idx, train_idx = order[:n_val], order[n_val:]
 
-    agent = DQNAgent(
-        n_features,
-        list(ACTIONS),
-        hidden=tuple(args.hidden),
-        lr=args.lr,
-        seed=args.seed,
-    )
+    if args.init:
+        agent = DQNAgent.load(args.init, seed=args.seed)
+        agent.lr = args.lr
+        print(f"warm start from {args.init}")
+    else:
+        agent = DQNAgent(
+            n_features,
+            list(ACTIONS),
+            hidden=tuple(args.hidden),
+            lr=args.lr,
+            seed=args.seed,
+        )
 
     def accuracy(idx: np.ndarray) -> float:
         correct = 0
