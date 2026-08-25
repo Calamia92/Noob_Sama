@@ -1,0 +1,82 @@
+from __future__ import annotations
+
+import argparse
+import statistics
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from src.dqn import DQNAgent
+from src.eos_env import EclipseEnv
+from src.features import featurize
+
+
+DEFAULT_AGENT = ROOT / "models" / "dqn_agent.json"
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Reload the saved DQN agent and watch it play in the browser."
+    )
+    parser.add_argument("--agent", type=Path, default=DEFAULT_AGENT)
+    parser.add_argument("--episodes", type=int, default=1)
+    parser.add_argument("--max-steps", type=int, default=600)
+    parser.add_argument("--step-seconds", type=float, default=0.15)
+    parser.add_argument("--headless", action="store_true", help="Run without a visible window.")
+    parser.add_argument(
+        "--turbo",
+        action="store_true",
+        help="Synchronous fast-forward stepping (useful with --headless).",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    agent = DQNAgent.load(args.agent)
+    print(
+        f"agent={args.agent.name} features={agent.n_features} "
+        f"actions={len(agent.actions)} episodes_trained={agent.episodes_trained}",
+        flush=True,
+    )
+    scores: list[float] = []
+
+    with EclipseEnv(
+        headless=args.headless,
+        slow_mo=0,
+        step_seconds=args.step_seconds,
+        turbo=args.turbo,
+    ) as env:
+        for episode in range(1, args.episodes + 1):
+            obs = env.reset()
+            previous = None
+            done = False
+            steps = 0
+
+            while not done and steps < args.max_steps:
+                action = agent.act(featurize(obs, previous))
+                previous = obs
+                obs, _reward, done, _info = env.step(action)
+                steps += 1
+
+            score = env.get_score()
+            scores.append(score)
+            print(
+                f"episode={episode} steps={steps} done={done} "
+                f"score={score:.3f} floors={obs.floors} rooms={obs.rooms} "
+                f"kills={obs.kills} time={obs.time:.2f}"
+            )
+
+    if scores:
+        print(
+            f"summary episodes={len(scores)} "
+            f"avg={statistics.mean(scores):.3f} "
+            f"min={min(scores):.3f} max={max(scores):.3f}"
+        )
+
+
+if __name__ == "__main__":
+    main()
