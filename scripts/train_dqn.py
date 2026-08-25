@@ -234,7 +234,9 @@ def main() -> None:
     if args.resume:
         agent = DQNAgent.load(args.latest_path, seed=args.seed)
         data = json.loads(args.latest_path.read_text(encoding="utf-8"))
-        best_mean = data.get("best_mean", float("-inf"))
+        # Resuming straight from a best-agent file keeps its record, so a
+        # weaker early eval cannot overwrite the saved best.
+        best_mean = data.get("best_mean", data.get("best_eval_score", float("-inf")))
         start_episode = agent.episodes_trained + 1
         print(f"resuming at episode {start_episode}", flush=True)
     else:

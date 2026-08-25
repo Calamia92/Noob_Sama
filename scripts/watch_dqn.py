@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import statistics
 import sys
 from pathlib import Path
@@ -38,6 +39,12 @@ def parse_args() -> argparse.Namespace:
         default=0.02,
         help="Tiny exploration to break deterministic stuck loops (0 for pure greedy).",
     )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Optional CSV file recording one row per episode.",
+    )
     return parser.parse_args()
 
 
@@ -50,6 +57,7 @@ def main() -> None:
         flush=True,
     )
     scores: list[float] = []
+    rows: list[dict[str, object]] = []
 
     with EclipseEnv(
         headless=args.headless,
@@ -74,11 +82,30 @@ def main() -> None:
 
             score = env.get_score()
             scores.append(score)
+            rows.append(
+                {
+                    "episode": episode,
+                    "steps": steps,
+                    "done": done,
+                    "score": round(score, 6),
+                    "floors": obs.floors,
+                    "rooms": obs.rooms,
+                    "kills": obs.kills,
+                    "time": round(obs.time, 2),
+                }
+            )
             print(
                 f"episode={episode} steps={steps} done={done} "
                 f"score={score:.3f} floors={obs.floors} rooms={obs.rooms} "
                 f"kills={obs.kills} time={obs.time:.2f}"
             )
+
+    if args.output and rows:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        with args.output.open("w", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(file, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(rows)
 
     if scores:
         print(
