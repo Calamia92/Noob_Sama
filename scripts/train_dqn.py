@@ -88,6 +88,14 @@ def parse_args() -> argparse.Namespace:
         help="Share of exploration steps played by the heuristic. Evaluation "
         "always uses the network alone.",
     )
+    parser.add_argument(
+        "--guide-steps",
+        type=int,
+        default=12,
+        help="Once guidance triggers, the heuristic keeps control for this "
+        "many consecutive steps: TD backups then chain through the "
+        "delegation labels, which a lone delegated step never shows.",
+    )
     parser.add_argument("--hp-penalty", type=float, default=2.0)
     parser.add_argument("--door-shaping", type=float, default=0.02)
     parser.add_argument(
@@ -137,14 +145,19 @@ def run_episode(
     total_reward = 0.0
     losses: list[float] = []
     steps = 0
+    guide_steps = 0
     done = False
 
     while not done and steps < args.max_steps:
         if greedy:
             label = agent.act(features, epsilon=args.eval_epsilon)
+        elif guide_steps > 0:
+            label = "heuristic"
+            guide_steps -= 1
         elif rng.random() < epsilon_at(global_step, args):
             if rng.random() < args.guide_ratio:
                 label = "heuristic"
+                guide_steps = args.guide_steps - 1
             else:
                 label = agent.actions[rng.randrange(len(agent.actions))]
         else:
