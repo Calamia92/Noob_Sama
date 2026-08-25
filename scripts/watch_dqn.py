@@ -31,6 +31,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Synchronous fast-forward stepping (useful with --headless).",
     )
+    parser.add_argument(
+        "--epsilon",
+        type=float,
+        default=0.02,
+        help="Tiny exploration to break deterministic stuck loops (0 for pure greedy).",
+    )
     return parser.parse_args()
 
 
@@ -57,7 +63,7 @@ def main() -> None:
             steps = 0
 
             while not done and steps < args.max_steps:
-                action = agent.act(featurize(obs, previous))
+                action = agent.act(featurize(obs, previous), epsilon=args.epsilon)
                 previous = obs
                 obs, _reward, done, _info = env.step(action)
                 steps += 1

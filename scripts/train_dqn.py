@@ -84,6 +84,20 @@ def parse_args() -> argparse.Namespace:
         help="Weight of the survival-time term in the TRAINING reward. Zero "
         "by default: paying for idle time taught the network to camp.",
     )
+    parser.add_argument(
+        "--step-cost",
+        type=float,
+        default=0.02,
+        help="Flat TRAINING penalty per step so standing still is never "
+        "free (a frozen argmax loop otherwise costs nothing).",
+    )
+    parser.add_argument(
+        "--eval-epsilon",
+        type=float,
+        default=0.02,
+        help="Tiny exploration during greedy evals to break deterministic "
+        "stuck loops, as in standard DQN evaluation protocols.",
+    )
     parser.add_argument("--eval-every", type=int, default=20)
     parser.add_argument("--eval-episodes", type=int, default=3)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
@@ -113,8 +127,9 @@ def run_episode(
     done = False
 
     while not done and steps < args.max_steps:
-        epsilon = 0.0 if greedy else epsilon_at(global_step, args)
-        if not greedy and rng.random() < epsilon:
+        if greedy:
+            action = agent.act(features, epsilon=args.eval_epsilon)
+        elif rng.random() < epsilon_at(global_step, args):
             if rng.random() < args.guide_ratio:
                 action = heuristic_action(obs)
                 if action not in ACTIONS:
@@ -133,8 +148,8 @@ def run_episode(
                 args.door_shaping,
                 time_weight=args.time_reward,
             )
-            / REWARD_SCALE
-        )
+            - args.step_cost
+        ) / REWARD_SCALE
         next_features = featurize(next_obs, obs)
 
         if buffer is not None:
