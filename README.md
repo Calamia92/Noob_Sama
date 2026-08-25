@@ -367,8 +367,10 @@ l'execution) : il nettoie 3 a 6 salles par episode, esquive projectiles et
 zones d'explosion, route sa progression par la carte, dash entre les
 objectifs et termine des etages (pire episode du protocole : 51 points).
 Apres deux rondes DAgger, il egale son professeur - le plafond naturel de
-l'imitation ; aller au-dela demanderait un affinage RL depuis ce modele
-(piste DQfD notee au carnet). Donnees : `reports/final_eval_bc.csv`,
+l'imitation. L'affinage RL au-dela de ce niveau a ete tente
+(`scripts/train_dqfd.py`, perte TD + ancre sur les demonstrations) et ne
+l'a pas depasse dans le budget disponible : essai negatif documente au
+carnet (V21). Donnees : `reports/final_eval_bc.csv`,
 `reports/final_eval_heuristic.csv`.
 
 Reproduction complete :
