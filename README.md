@@ -347,21 +347,28 @@ La deuxieme phase du projet (details et echecs mesures dans
   propres derives. Entropie croisee, 256x256, precision de validation
   85.6 %.
 
+- **Conscience de la carte et du temps** : le graphe du donjon est route par
+  priorite (tresor et marchand d'abord pour s'equiper, le gardien en
+  dernier), les deplacements hors combat utilisent le dash, et l'agent se
+  pre-positionne pendant la fenetre d'apparition des ennemis au lieu de
+  figer (un defaut du professeur que le clone imitait fidelement).
+
 Resultats du protocole final (20 episodes x 900 steps, meme score) :
 
-| Agent | Score moyen | vs aleatoire | Salles | Etages |
+| Agent | Score moyen | vs aleatoire | Salles | Morts |
 | --- | --- | --- | --- | --- |
-| Aleatoire | 10.54 | 1x | 1 | 0 |
-| DQN pur (meilleur checkpoint) | 6.66 | 0.6x | 0 | 0 |
-| Heuristique (professeur) | 73.04 | 6.9x | 78 | 1 |
-| **Reseau clone + DAgger (retenu)** | **73.31** | **7.0x** | 74 | **2** |
+| Aleatoire | 10.54 | 1x | 1 | 0/20 (survie passive) |
+| DQN pur (meilleur checkpoint) | 6.66 | 0.6x | 0 | 20/20 |
+| Heuristique (professeur) | 90.08 | 8.5x | 97 | 6/20 |
+| **Reseau clone + DAgger (retenu)** | **78.11** | **7.4x** | 95 | 8/20 |
 
 Le reseau retenu joue seul (aucun garde-fou, aucune delegation a
-l'execution), nettoie 2 a 5 salles par episode, esquive projectiles et
-zones d'explosion, et termine des etages — dont un run a 210 points (deux
-etages). L'ecart d'imitation avec le professeur est referme ; depasser ce
-niveau demanderait un affinage RL depuis ce modele (piste DQfD notee au
-carnet). Donnees : `reports/final_eval_bc.csv`,
+l'execution) : il nettoie 3 a 6 salles par episode, esquive projectiles et
+zones d'explosion, route sa progression par la carte et dash entre les
+objectifs. Les etages complets restent occasionnels (3 sur les 100
+episodes de la ronde DAgger ; le +100 du score depend surtout du combat de
+gardien). Depasser le professeur demanderait un affinage RL depuis ce
+modele (piste DQfD notee au carnet). Donnees : `reports/final_eval_bc.csv`,
 `reports/final_eval_heuristic.csv`.
 
 Reproduction complete :
