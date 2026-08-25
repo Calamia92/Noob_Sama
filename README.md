@@ -355,20 +355,20 @@ La deuxieme phase du projet (details et echecs mesures dans
 
 Resultats du protocole final (20 episodes x 900 steps, meme score) :
 
-| Agent | Score moyen | vs aleatoire | Salles | Morts |
-| --- | --- | --- | --- | --- |
-| Aleatoire | 10.54 | 1x | 1 | 0/20 (survie passive) |
-| DQN pur (meilleur checkpoint) | 6.66 | 0.6x | 0 | 20/20 |
-| Heuristique (professeur) | 90.08 | 8.5x | 97 | 6/20 |
-| **Reseau clone + DAgger (retenu)** | **78.11** | **7.4x** | 95 | 8/20 |
+| Agent | Score moyen | vs aleatoire | Salles | Etages | Morts |
+| --- | --- | --- | --- | --- | --- |
+| Aleatoire | 10.54 | 1x | 1 | 0 | 0/20 (survie passive) |
+| DQN pur (meilleur checkpoint) | 6.66 | 0.6x | 0 | 0 | 20/20 |
+| Heuristique (professeur) | 90.08 | 8.5x | 97 | 2 | 6/20 |
+| **Reseau clone + 2 rondes DAgger (retenu)** | **93.23** | **8.8x** | 100 | **2** | 9/20 |
 
 Le reseau retenu joue seul (aucun garde-fou, aucune delegation a
 l'execution) : il nettoie 3 a 6 salles par episode, esquive projectiles et
-zones d'explosion, route sa progression par la carte et dash entre les
-objectifs. Les etages complets restent occasionnels (3 sur les 100
-episodes de la ronde DAgger ; le +100 du score depend surtout du combat de
-gardien). Depasser le professeur demanderait un affinage RL depuis ce
-modele (piste DQfD notee au carnet). Donnees : `reports/final_eval_bc.csv`,
+zones d'explosion, route sa progression par la carte, dash entre les
+objectifs et termine des etages (pire episode du protocole : 51 points).
+Apres deux rondes DAgger, il egale son professeur - le plafond naturel de
+l'imitation ; aller au-dela demanderait un affinage RL depuis ce modele
+(piste DQfD notee au carnet). Donnees : `reports/final_eval_bc.csv`,
 `reports/final_eval_heuristic.csv`.
 
 Reproduction complete :
