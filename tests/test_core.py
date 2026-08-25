@@ -47,6 +47,7 @@ def obs(**overrides: object) -> Observation:
         portal=None,
         available_doors=[],
         pickups=[],
+        enemies=[],
     )
     return replace(base, **overrides)
 
