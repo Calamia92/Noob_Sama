@@ -29,6 +29,7 @@ env/
 # Training artifacts and generated data
 models/*
 !models/best_agent.json
+!models/bc_agent.json
 checkpoints/
 runs/
 data/

@@ -131,6 +131,59 @@ Decision : presenter la version finale comme un agent Q-learning tabulaire 16
 actions avec controle bas niveau heuristique et garde-fous de demo, et garder
 les intentions tactiques comme piste non retenue faute de stabilite.
 
+## Phase 2 - environnement turbo, DQN et clonage de comportement
+
+Objectif de la phase : depasser le plafond de la Q-table (granularite de la
+table) et viser un agent capable de finir un etage. Budget re-echantillonne :
+episodes de 900 steps, baseline aleatoire re-mesuree sur ce budget.
+
+| Version | Changement teste | Signal observe | Decision |
+| --- | --- | --- | --- |
+| V9 | Environnement turbo (boucle du jeu pilotee en synchrone) | ~540 steps/s au lieu de 4-5, temps de jeu exact par step | Adopte ; baselines re-mesurees (600 steps : 8.45, 900 steps : 10.54) |
+| V10 | DQN 59 actions sur 70 features continues | Le greedy converge vers "camper dans la salle de depart" (evals figees a 13.54) | Retirer le revenu de survie de la recompense d'entrainement |
+| V11 | Temps retire + cout par step + epsilon d'eval | L'agent traverse les portes puis se fige/meurt en combat ; evals instables | Ajouter une meta-action de delegation comme en V6 |
+| V12 | Delegation heuristique + penalite HP 1.0 | Record eval 25.4 (2.4x la baseline) mais le greedy n'utilise jamais la delegation (0/900 mesure) | Delegation apprise par sequences, pas par steps isoles |
+| V13 | Delegation collante (sequences de 12 steps) + reprise du meilleur | 7 etages termines a l'ENTRAINEMENT (scores 147-181), mais ecart train ~64 / eval ~6 : la perf appartient aux sequences heuristiques | Mesurer honnetement chaque composante |
+| V14 | Eval comparative 20 episodes x 900 steps | DQN pur 6.66 (sous l'aleatoire 10.54) ; heuristique corrigee 63.66 avec 2 etages | Resultat negatif documente : le RL pur n'apprend pas le combat fin sur ce budget |
+| V15 | Clonage de comportement (94 074 paires heuristiques, 87.8 % de precision val.) | **56.89 de moyenne sur 20 episodes, 5.4x la baseline**, 66 salles et 277 kills, reseau seul sans garde-fou | Modele retenu : `models/bc_agent.json` |
+
+### V10-V13 - trois pathologies du DQN, mesurees et corrigees
+
+1. **Camping** : le terme de temps du score (+0.1/s) paye l'immobilite sans
+   risque ; le greedy convergeait vers 13.54 exactement (survie totale, zero
+   contact) a chaque eval. Correctif : temps retire de la recompense
+   d'ENTRAINEMENT (le score de comparaison ne change pas).
+2. **Gel devant la porte** : trace pas-a-pas : l'agent marche droit vers la
+   porte puis se fige a 164 px, mal aligne, sur une action statique (etat
+   inchange -> meme argmax -> boucle infinie). Correctifs : cout de -0.02 par
+   step et 2 % d'exploration en eval (protocole DQN standard).
+3. **Delegation morte** : la meta-action "heuristic" tiree step par step
+   pendant l'exploration ne montre jamais la valeur de l'heuristique (un step
+   isole dans du bruit). Correctif : sequences collantes de 12 steps. Resultat :
+   des etages complets a l'entrainement, mais le reseau seul ne les a pas
+   internalises dans le budget disponible.
+
+### V15 - apprentissage par demonstrations
+
+150 episodes heuristiques enregistres en turbo (94 074 paires
+features -> action, 11 etages dans les demonstrations), reseau entraine par
+entropie croisee (30 epoques, ~2 min), precision de validation 87.8 %.
+
+Le reseau clone atteint ~89 % du score de son professeur et nettoie 2 a 5
+salles a chaque episode du protocole. Sa limite est celle du professeur : le
+combat de boss (l'etage se finit "parfois", pas "a chaque run"). Piste
+suivante notee : ameliorer le combat de boss de l'heuristique (les progres du
+professeur se transferent au clone par re-collecte + re-clonage), puis
+affinage RL type DQfD (perte supervisee + perte TD melangees).
+
+Commandes de reproduction :
+
+```bash
+python scripts/collect_demos.py --episodes 150 --max-steps 900 --seed 42
+python scripts/train_bc.py
+python scripts/watch_dqn.py --agent models/bc_agent.json --episodes 3
+```
+
 ## Limites connues
 
 - Les donjons ne sont pas seedables, donc les evaluations courtes restent

@@ -315,16 +315,69 @@ niveau :
   trop l'espace d'actions ; la meilleure version pratique reste donc le modele
   Q-learning sauvegarde avec garde-fous heuristiques.
 
-## Demo de l'agent entraine
+## Phase 2 - environnement turbo et agent par demonstrations
 
-Le script recharge `models/best_agent.json` depuis un script neuf, sans
-relancer l'entrainement, et ouvre un navigateur visible :
+La deuxieme phase du projet (details et echecs mesures dans
+`docs/carnet_essais.md`, versions V9 a V15) a change d'echelle :
+
+- **Environnement turbo** : le jeu simule a pas fixe 120 Hz ; le wrapper pilote
+  cette boucle en synchrone (`EclipseEnv(turbo=True)`) au lieu de tenir les
+  touches en temps reel. Vitesse mesuree : ~540 steps/s au lieu de 4-5, temps
+  de jeu exact par step, mode temps reel conserve pour les demos.
+- **Budget re-echantillonne** : episodes de 900 steps (le budget minimal pour
+  atteindre le boss d'un etage), baseline aleatoire re-mesuree sur ce budget :
+  **10.54** en moyenne sur 20 episodes (`reports/random_baseline_900.csv`).
+- **DQN teste honnetement** : un Double DQN numpy (70 features continues,
+  59 actions, replay, target network) a ete pousse sur ~800 episodes en
+  5 iterations correctives. Resultat negatif documente : 6.66 en eval pure,
+  sous la baseline aleatoire - le RL pur n'apprend pas le combat fin avec ce
+  budget d'echantillons (`reports/final_eval_dqn.csv`).
+- **Agent retenu : clonage de comportement** (`models/bc_agent.json`).
+  150 episodes de demonstrations heuristiques enregistres en turbo (94 074
+  paires features -> action), reseau entraine par entropie croisee, precision
+  de validation 87.8 %.
+
+Resultats du protocole final (20 episodes x 900 steps, meme score) :
+
+| Agent | Score moyen | vs aleatoire | Salles | Etages |
+| --- | --- | --- | --- | --- |
+| Aleatoire | 10.54 | 1x | 1 | 0 |
+| DQN pur (meilleur checkpoint) | 6.66 | 0.6x | 0 | 0 |
+| Heuristique (reference) | 63.66 | 6.0x | 66 | 2 |
+| **Reseau clone (retenu)** | **56.89** | **5.4x** | 66 | 0 |
+
+Le reseau clone joue seul (aucun garde-fou, aucune delegation a l'execution)
+et nettoie 2 a 5 salles par episode ; sa limite actuelle est le combat de
+boss, comme son professeur. Donnees : `reports/final_eval_bc.csv`,
+`reports/final_eval_heuristic.csv`.
+
+Reproduction complete :
 
 ```bash
-python scripts/watch_agent.py --episodes 3
+python scripts/collect_demos.py --episodes 150 --max-steps 900 --seed 42
+python scripts/train_bc.py
+python scripts/watch_dqn.py --agent models/bc_agent.json --episodes 3
 ```
 
-C'est la commande a utiliser pour la video de demonstration.
+Suivi d'un entrainement en direct (scores, salles, kills, etages) :
+
+```bash
+python scripts/dashboard.py
+# puis ouvrir http://127.0.0.1:8765
+```
+
+## Demo de l'agent entraine
+
+Chaque agent se recharge depuis un script neuf, sans relancer
+l'entrainement, et joue dans un navigateur visible :
+
+```bash
+# Agent phase 2 (reseau clone, recommande pour la demo)
+python scripts/watch_dqn.py --agent models/bc_agent.json --episodes 3
+
+# Agent phase 1 (Q-learning tabulaire)
+python scripts/watch_agent.py --episodes 3
+```
 
 ## Video de restitution
 
